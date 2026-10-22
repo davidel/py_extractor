@@ -108,16 +108,59 @@ def _render_unit(unit: ExtractedUnit) -> list[str]:
     # re-emitting them here would duplicate imports and break on dependencies
     # that were rewritten or de-duplicated.
     marker = f"# --- inlined module {unit.module} ({unit.repo_id}:{unit.path}) ---"
-    body = _module_definition_source(unit.node)
+    body = _module_definition_source(unit.node, unit.source)
     if not body.strip():
       return []
     return [marker, body, ""]
   marker = f"# --- {unit.module}:{unit.symbol}  (from {unit.repo_id}:{unit.path}) ---"
-  code = ast.unparse(_strip_docstring_possible(unit.node))
+  code = _verbatim_source(unit.source, unit.node)
+  if code is None:
+    code = ast.unparse(_strip_docstring_possible(unit.node))
   return [marker, code, ""]
 
 
-def _module_definition_source(node: ast.AST) -> str:
+def _verbatim_source(source: str, node: ast.AST) -> str | None:
+  """Return the *original* text of *node*, or ``None`` if it can't be reproduced.
+
+  Slicing the original lines (rather than ``ast.unparse``) preserves comments,
+  blank lines, decorators and the author's own formatting.  A reparse guard
+  compares the reconstructed AST against the original and returns ``None`` when
+  the text cannot be reproduced exactly -- e.g. when dedenting a nested
+  definition would corrupt a multi-line string literal.  Callers fall back to
+  ``ast.unparse`` in that case, so the output is never wrong, only plainer.
+  """
+  lineno = getattr(node, "lineno", None)
+  end_lineno = getattr(node, "end_lineno", None)
+  if lineno is None or end_lineno is None:
+    return None
+  decorators = getattr(node, "decorator_list", None) or []
+  start = min([lineno] + [decorator.lineno for decorator in decorators])
+  lines = source.splitlines()
+  # Absorb an immediately-preceding block of comment-only lines (they are not
+  # part of the AST but belong to the definition).  A blank or code line stops
+  # the walk, so comments that document the *previous* statement are not stolen.
+  while start - 1 >= 1 and lines[start - 2].strip().startswith("#"):
+    start -= 1
+  raw = "\n".join(lines[start - 1:end_lineno])
+  indent = getattr(node, "col_offset", 0)
+  if indent:
+    dedented: list[str] = []
+    for line in raw.splitlines():
+      if len(line) >= indent and line[:indent].strip() == "":
+        dedented.append(line[indent:])
+      else:
+        dedented.append(line)
+    raw = "\n".join(dedented)
+  try:
+    parsed = ast.parse(raw).body
+  except SyntaxError:
+    return None
+  if len(parsed) != 1 or ast.dump(parsed[0]) != ast.dump(node):
+    return None
+  return raw
+
+
+def _module_definition_source(node: ast.AST, source: str) -> str:
   """Return the source of a module's top-level defs/assignments (no imports)."""
   blocks: list[str] = []
   for stmt in getattr(node, "body", []):
@@ -125,7 +168,8 @@ def _module_definition_source(node: ast.AST) -> str:
       continue
     if isinstance(stmt,
                   (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Assign, ast.AnnAssign)):
-      blocks.append(ast.unparse(stmt))
+      text = _verbatim_source(source, stmt)
+      blocks.append(text if text is not None else ast.unparse(stmt))
     # Docstrings / bare expressions / if __name__ blocks are intentionally skipped.
   return "\n\n".join(blocks)
 
