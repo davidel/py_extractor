@@ -24,7 +24,18 @@ class ResolutionError(PyExtractorError):
 
 
 class AmbiguousSymbolError(PyExtractorError):
-  """A symbol name resolves to more than one definition and no hint disambiguates it."""
+  """A symbol name resolves to more than one definition.
+
+  Attributes:
+    symbol: The ambiguous symbol name.
+    candidates: Candidate repo-relative file paths, best match first.
+  """
+
+  def __init__(self, symbol: str, candidates: list[str]):
+    self.symbol = symbol
+    self.candidates = list(candidates)
+    joined = ", ".join(self.candidates)
+    super().__init__(f"Symbol {symbol!r} is defined in multiple files: {joined}")
 
 
 class ExtractionError(PyExtractorError):

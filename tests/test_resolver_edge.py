@@ -9,7 +9,7 @@ import pytest
 from py_extractor import locate_symbol
 from py_extractor.analysis.imports import collect_imports
 from py_extractor.analysis.resolver import resolve_import_name
-from py_extractor.errors import SymbolNotFoundError
+from py_extractor.errors import AmbiguousSymbolError, SymbolNotFoundError
 from py_extractor.source.tree import SourceTree
 
 
@@ -76,10 +76,9 @@ def test_locate_ambiguous_returns_first_deterministically() -> None:
       "pkg/aaa.py": "class Dup:\n    pass\n",
       "pkg/bbb.py": "class Dup:\n    pass\n",
   })
-  first = locate_symbol(tree, "Dup")
-  second = locate_symbol(tree, "Dup")
-  assert first == second
-  assert first.path in {"pkg/aaa.py", "pkg/bbb.py"}
+  with pytest.raises(AmbiguousSymbolError) as exc:
+    locate_symbol(tree, "Dup")
+  assert set(exc.value.candidates) == {"pkg/aaa.py", "pkg/bbb.py"}
 
 
 def test_locate_method_with_hint() -> None:

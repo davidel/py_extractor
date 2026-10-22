@@ -35,18 +35,34 @@ pip install -e '.[dev]'     # adds pytest, pytest-cov, ruff, yapf
 ## CLI
 
 ```bash
-py-extractor github:owner/repo SymbolName --file path/to/module.py --ref main
+py-extractor github:owner/repo SymbolName
 py-extractor https://github.com/pallets/flask Flask --out flask_flask.py
 python -m py_extractor github:owner/repo SymbolName --report json
 ```
+
+The symbol is discovered automatically by scanning the whole repository. If the
+name is defined in **more than one file**, the CLI asks which one to use::
+
+```text
+Symbol 'Upsample' is defined in multiple files:
+  1) basicsr/archs/dat_arch.py  [default]
+  2) basicsr/archs/arch_util.py
+Which file is the reference? [1]:
+```
+
+For scripts/CI, pass `--file PATH` to select the reference file directly, or
+`-y/--yes` to fail fast (with the candidate list) instead of prompting. The
+prompt is only shown on an interactive terminal; when stdin is not a TTY the run
+errors out rather than hanging.
 
 Key options:
 
 | Option | Meaning |
 | --- | --- |
-| `--file PATH` | Repo-relative file hint containing the symbol |
+| `--file PATH` | Reference file; overrides the symbol search (scripts/CI) |
 | `--ref REF` | Git ref (branch/tag/commit) |
 | `--out FILE` | Write output to a file (default: stdout) |
+| `-y, --yes` | Never prompt; fail if the symbol is ambiguous |
 | `--trust a,b` | Extra trusted top-level module names |
 | `--no-trust a,b` | Revoke trusted names |
 | `--trust-file FILE` | Extra TOML registry (`[packages]` table) |
@@ -63,7 +79,7 @@ from py_extractor import extract_symbol
 result = extract_symbol(
     "github:owner/repo",
     "MyClass",
-    file_hint="pkg/module.py",
+    file_hint="pkg/module.py",   # optional override (skips discovery)
     trusted={"torch", "numpy"},
 )
 print(result.source)        # the generated file
@@ -71,6 +87,23 @@ for flag in result.closure.flags:
     print(flag.kind.value, flag.detail)
 ```
 
+When the symbol is ambiguous and no `file_hint` is given, `extract_symbol`
+raises `AmbiguousSymbolError` (carrying the ranked `candidates`) unless you pass
+a `choose` callback:
+
+```python
+from py_extractor import extract_symbol
+from py_extractor.errors import AmbiguousSymbolError
+
+try:
+    result = extract_symbol("github:owner/repo", "Thing")
+except AmbiguousSymbolError as exc:
+    print(exc.candidates)               # ['pkg/one.py', 'pkg/two.py']
+
+# ...or decide programmatically:
+result = extract_symbol("github:owner/repo", "Thing",
+                        choose=lambda symbol, candidates: candidates[1])
+```
 ## Trusted packages
 
 The curated registry lives in `src/py_extractor/data/trusted_packages.toml`

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import __version__, extract_symbol
 from .config import ExtractOptions, TrustPolicy
-from .errors import PyExtractorError
+from .errors import AmbiguousSymbolError, PyExtractorError
 from .report import render_json, render_text
 
 
@@ -24,7 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
   parser.add_argument("--file",
                       dest="file_hint",
                       default=None,
-                      help="Repo-relative path hint containing the symbol.")
+                      help="Repo-relative reference file. Overrides the symbol search "
+                      "(use this instead of the interactive prompt for scripts/CI).")
   parser.add_argument("--ref", default="main", help="Git ref (branch/tag/commit). Default: main.")
   parser.add_argument("--out",
                       default=None,
@@ -56,12 +57,46 @@ def build_parser() -> argparse.ArgumentParser:
                         default="text",
                         help="Emit a resolution report to stderr. Default: text.")
   behavior.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity.")
+  behavior.add_argument("-y",
+                        "--yes",
+                        action="store_true",
+                        help="Never prompt; fail if a symbol is ambiguous (for scripts/CI).")
   behavior.add_argument("--version", action="version", version=f"py_extractor {__version__}")
   return parser
 
 
 def _split(value: str) -> set[str]:
   return {part.strip() for part in value.split(",") if part.strip()}
+
+
+def _make_chooser(*, interactive: bool):
+  """Return a ``choose`` callback for symbol disambiguation.
+
+  When *interactive* is ``False`` the callback declines (``None``), letting the
+  library raise :class:`AmbiguousSymbolError`; the CLI then prints the candidate
+  list and exits. This keeps scripts/CI from ever hanging on a prompt.
+  """
+
+  def choose(symbol: str, candidates: list[str]) -> str | None:
+    if not interactive:
+      return None
+    print(f"Symbol {symbol!r} is defined in multiple files:", file=sys.stderr)
+    for index, path in enumerate(candidates, start=1):
+      marker = "  [default]" if index == 1 else ""
+      print(f"  {index}) {path}{marker}", file=sys.stderr)
+    while True:
+      try:
+        answer = input("Which file is the reference? [1]: ").strip()
+      except (EOFError, KeyboardInterrupt):
+        print(file=sys.stderr)
+        return None
+      if not answer:
+        return candidates[0]
+      if answer.isdigit() and 1 <= int(answer) <= len(candidates):
+        return candidates[int(answer) - 1]
+      print("Please enter a number from the list.", file=sys.stderr)
+
+  return choose
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -83,6 +118,11 @@ def main(argv: list[str] | None = None) -> int:
       verbosity=args.verbose,
   )
 
+  # Prompt for disambiguation only when attached to a real terminal and not
+  # silenced with -y; otherwise decline so the library raises and we report.
+  interactive = (not args.yes) and sys.stdin.isatty()
+  chooser = _make_chooser(interactive=interactive)
+
   try:
     result = extract_symbol(
         args.repo,
@@ -90,7 +130,12 @@ def main(argv: list[str] | None = None) -> int:
         file_hint=args.file_hint,
         ref=args.ref,
         options=options,
+        choose=chooser,
     )
+  except AmbiguousSymbolError as exc:
+    print(f"error: {exc}", file=sys.stderr)
+    print("Re-run with --file <path> to choose the reference file.", file=sys.stderr)
+    return 1
   except PyExtractorError as exc:
     print(f"error: {exc}", file=sys.stderr)
     return 1

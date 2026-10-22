@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from .analysis.resolver import ResolvedSymbol
 from .analysis.symbols import find_definition
 from .config import ExtractOptions, TrustPolicy
-from .errors import SourceError, SymbolNotFoundError
+from .errors import AmbiguousSymbolError, SourceError, SymbolNotFoundError
 from .extract.closure import ClosureResult, ThirdPartyResolver, compute_closure
 from .extract.emitter import emit
 from .pypi import extract_github_repo, fetch_pypi_json, guess_distribution_names
@@ -49,19 +50,31 @@ def _is_package_file(path: str) -> bool:
   return path.rsplit("/", 1)[-1] == "__init__.py"
 
 
-def locate_symbol(tree: SourceTree, symbol: str, file_hint: str | None = None) -> ResolvedSymbol:
+def locate_symbol(
+    tree: SourceTree,
+    symbol: str,
+    file_hint: str | None = None,
+    *,
+    choose: Callable[[str, list[str]], str | None] | None = None,
+) -> ResolvedSymbol:
   """Locate *symbol* within *tree*, returning its concrete location.
 
   Args:
     tree: The source tree to search.
     symbol: A class/function name (optionally dotted ``Class.method``).
-    file_hint: Optional repo-relative path to restrict the search to.
+    file_hint: Optional repo-relative path to use as the reference file. This
+      overrides the repository-wide search entirely (useful for scripts/CI).
+    choose: Optional callback invoked when the symbol is defined in more than
+      one file. It receives the symbol and the ranked candidate paths and must
+      return the chosen path (or ``None`` to decline).
 
   Returns:
     The resolved location.
 
   Raises:
     SymbolNotFoundError: If the symbol cannot be found.
+    AmbiguousSymbolError: If the symbol is defined in multiple files and no
+      ``choose`` callback resolves the ambiguity.
   """
   head = symbol.split(".")[0]
   if file_hint:
@@ -88,11 +101,30 @@ def locate_symbol(tree: SourceTree, symbol: str, file_hint: str | None = None) -
         break
   if not matches:
     raise SymbolNotFoundError(f"Symbol {symbol!r} not found anywhere in repository")
-  if len(matches) > 1:
-    preferred = [m for m in matches if m.module.split(".")[-1].lower() == head.lower()]
-    if len(preferred) == 1:
-      return preferred[0]
-  return matches[0]
+  if len(matches) == 1:
+    return matches[0]
+
+  ranked = _rank_matches(matches, head)
+  candidate_paths = [match.path for match in ranked]
+  if choose is not None:
+    chosen = choose(symbol, candidate_paths)
+    if chosen is not None:
+      for match in ranked:
+        if match.path == chosen:
+          return match
+      raise SymbolNotFoundError(f"Chosen file {chosen!r} is not a candidate for {symbol!r}")
+  raise AmbiguousSymbolError(symbol, candidate_paths)
+
+
+def _rank_matches(matches: list[ResolvedSymbol], head: str) -> list[ResolvedSymbol]:
+  """Order candidate matches best-first (module named after the symbol wins)."""
+
+  def rank(match: ResolvedSymbol) -> tuple[int, int, str]:
+    leaf = match.module.split(".")[-1].lower()
+    named = 0 if leaf == head.lower() else 1
+    return (named, len(match.path), match.path)
+
+  return sorted(matches, key=rank)
 
 
 def _resolve_hint(tree: SourceTree, file_hint: str) -> str | None:
@@ -139,6 +171,7 @@ def extract_symbol(
     file_hint: str | None = None,
     ref: str = "main",
     options: ExtractOptions | None = None,
+    choose: Callable[[str, list[str]], str | None] | None = None,
     trusted: set[str] | frozenset[str] | None = None,
     untrusted: set[str] | frozenset[str] | None = None,
     registry_files: list[str | Path] | None = None,
@@ -153,9 +186,12 @@ def extract_symbol(
   Args:
     repo: Repository spec (``github:owner/repo``, a URL, or a local path).
     symbol: Class/function name to extract.
-    file_hint: Optional repo-relative file path containing the symbol.
+    file_hint: Optional repo-relative reference file. Overrides the
+      repository-wide symbol search (useful for scripts/CI).
     ref: Git ref (branch/tag/commit).
     options: Explicit extraction options (overrides the keyword arguments).
+    choose: Optional callback used to disambiguate a symbol defined in several
+      files. Receives the symbol and candidate paths, returns the chosen path.
     trusted: Additional trusted top-level module names.
     untrusted: Trusted module names to revoke.
     registry_files: Extra TOML registry files to load.
@@ -178,7 +214,7 @@ def extract_symbol(
 
   repo_ref = parse_repo(repo, ref)
   root_tree = load_tree(repo_ref, options)
-  target = locate_symbol(root_tree, symbol, file_hint=file_hint)
+  target = locate_symbol(root_tree, symbol, file_hint=file_hint, choose=choose)
 
   # Honour the effective options (an explicit `options` object wins over the
   # individual keyword arguments, which keeps the CLI's `--no-third-party`
