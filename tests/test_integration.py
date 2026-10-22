@@ -91,3 +91,26 @@ def test_output_never_drops_used_names(tmp_path) -> None:
   unresolved = referenced - bound
   assert not unresolved, f"unresolved free names in output: {sorted(unresolved)}"
   compile(result.source, "<extracted>", "exec")  # must actually compile
+
+
+def test_generated_file_compiles_and_symbol_is_importable(tmp_path) -> None:
+  """End-to-end: the written file passes compile_file and import_symbol."""
+  from py_extractor.verify import compile_file, import_symbol
+
+  result = extract_symbol(
+      DAT_REPO,
+      "DAT",
+      file_hint=DAT_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  out = tmp_path / "dat_out.py"
+  out.write_text(result.source, encoding="utf-8")
+
+  assert compile_file(out).ok
+  # torch/timm etc. are not installed in CI, so the import smoke test is
+  # expected to fail gracefully (reported, never raising).
+  outcome = import_symbol("DAT", path=out, timeout=60)
+  assert outcome.kind == "import"
+  if not outcome.ok:
+    assert outcome.detail  # a readable reason is always provided

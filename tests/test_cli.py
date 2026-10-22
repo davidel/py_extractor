@@ -180,3 +180,71 @@ def test_cli_prompt_blank_uses_default(ambiguous_repo, tmp_path, monkeypatch) ->
       _args(ambiguous_repo, "Thing", "--out", str(out), "--report", "none", "--cache-dir",
             str(tmp_path / "c")))
   assert code == 0
+
+
+# --- verification flags ----------------------------------------------------
+
+
+@pytest.fixture
+def plain_repo(tmp_path: Path) -> Path:
+  """A repo with a dependency-free symbol (importable without third parties)."""
+  repo = tmp_path / "plain"
+  (repo / "pkg").mkdir(parents=True)
+  (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+  (repo / "pkg" / "mod.py").write_text("class Simple:\n    def value(self):\n        return 42\n",
+                                       encoding="utf-8")
+  return repo
+
+
+def test_cli_verify_compile_ok(local_repo: Path, tmp_path: Path, capsys) -> None:
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(local_repo, "Model", "--out", str(out), "--report", "none", "--cache-dir",
+            str(tmp_path / "c"), "--verify-compile"))
+  assert code == 0
+  assert "verify-compile: OK" in capsys.readouterr().err
+
+
+def test_cli_verify_import_ok(plain_repo: Path, tmp_path: Path, capsys) -> None:
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(plain_repo, "Simple", "--out", str(out), "--report", "none", "--cache-dir",
+            str(tmp_path / "c"), "--verify-import"))
+  assert code == 0
+  assert "verify-import: OK" in capsys.readouterr().err
+
+
+def test_cli_verify_import_reports_missing_dependency(plain_repo: Path, tmp_path: Path,
+                                                      capsys) -> None:
+  """Importing a symbol whose (untrusted) dep is absent must fail loudly."""
+  (plain_repo / "pkg" / "needs_dep.py").write_text(
+      "import definitely_not_installed_pkg_xyz\n\nclass NeedsDep:\n"
+      "    x = definitely_not_installed_pkg_xyz.VALUE\n",
+      encoding="utf-8")
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(plain_repo, "NeedsDep", "--out", str(out), "--report", "none", "--cache-dir",
+            str(tmp_path / "c"), "--verify-import"))
+  assert code == 1
+  assert "verify-import: FAILED" in capsys.readouterr().err
+
+
+def test_cli_verify_import_failure(plain_repo: Path, tmp_path: Path, capsys) -> None:
+  """A missing base class raises NameError at import and must be caught."""
+  (plain_repo / "pkg" / "broken.py").write_text("class Broken(nonexistent_base):\n    pass\n",
+                                                encoding="utf-8")
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(plain_repo, "Broken", "--out", str(out), "--report", "none", "--cache-dir",
+            str(tmp_path / "c"), "--verify-import"))
+  assert code == 1
+  assert "verify-import: FAILED" in capsys.readouterr().err
+
+
+def test_cli_no_verify_by_default(local_repo: Path, tmp_path: Path, capsys) -> None:
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(local_repo, "Model", "--out", str(out), "--report", "none", "--cache-dir",
+            str(tmp_path / "c")))
+  assert code == 0
+  assert "verify-" not in capsys.readouterr().err

@@ -18,6 +18,7 @@ from .source import load_tree, parse_repo
 from .source.fetcher import Fetcher
 from .source.repo import RepoRef
 from .source.tree import SourceTree
+from .verify import VerifyResult, compile_file, compile_source, import_symbol
 
 __version__ = "0.1.0"
 
@@ -236,8 +237,12 @@ def extract_symbol(
 
 __all__ = [
     "ExtractionResult",
+    "VerifyResult",
     "__version__",
+    "compile_file",
+    "compile_source",
     "extract_symbol",
+    "import_symbol",
     "locate_symbol",
     "make_third_party_resolver",
 ]

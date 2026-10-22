@@ -10,6 +10,7 @@ from . import __version__, extract_symbol
 from .config import ExtractOptions, TrustPolicy
 from .errors import AmbiguousSymbolError, PyExtractorError
 from .report import render_json, render_text
+from .verify import compile_file, compile_source_result, import_symbol
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,6 +62,18 @@ def build_parser() -> argparse.ArgumentParser:
                         "--yes",
                         action="store_true",
                         help="Never prompt; fail if a symbol is ambiguous (for scripts/CI).")
+  verify = parser.add_argument_group("verification")
+  verify.add_argument("--verify-compile",
+                      action="store_true",
+                      help="Byte-compile the written --out file and report the result.")
+  verify.add_argument("--verify-import",
+                      action="store_true",
+                      help="Import the generated file in a subprocess to confirm the symbol "
+                      "is usable (executes module-level code; opt-in).")
+  verify.add_argument("--verify-timeout",
+                      type=float,
+                      default=60.0,
+                      help="Timeout in seconds for --verify-import. Default: 60.")
   behavior.add_argument("--version", action="version", version=f"py_extractor {__version__}")
   return parser
 
@@ -151,7 +164,36 @@ def main(argv: list[str] | None = None) -> int:
     print(render_text(result.closure), file=sys.stderr)
   elif args.report == "json":
     print(render_json(result.closure), file=sys.stderr)
-  return 0
+
+  return _run_verification(args, result)
+
+
+def _run_verification(args, result) -> int:
+  """Run the requested verification steps, returning the process exit code."""
+  exit_code = 0
+
+  if args.verify_compile:
+    target = Path(args.out) if args.out else None
+    outcome = (compile_file(target) if target is not None else compile_source_result(result.source))
+    _report_verification("compile", outcome)
+    if not outcome.ok:
+      exit_code = 1
+
+  if args.verify_import:
+    outcome = import_symbol(result.target.symbol or "",
+                            path=args.out,
+                            source=result.source,
+                            timeout=args.verify_timeout)
+    _report_verification("import", outcome)
+    if not outcome.ok:
+      exit_code = 1
+
+  return exit_code
+
+
+def _report_verification(kind: str, outcome) -> None:
+  status = "OK" if outcome.ok else "FAILED"
+  print(f"verify-{kind}: {status} - {outcome.detail}", file=sys.stderr)
 
 
 if __name__ == "__main__":  # pragma: no cover

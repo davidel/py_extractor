@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 
 from ..errors import ExtractionError
+from ..verify import compile_source
 from .closure import ClosureResult, ExtractedUnit, KeptImport
 
 
@@ -46,7 +47,9 @@ def emit(
   source = "\n".join(lines).rstrip() + "\n"
 
   try:
-    ast.parse(source)
+    # Full compiler check (stronger than ast.parse): catches top-level
+    # return/break/yield, duplicate args, etc. that can result from inlining.
+    compile_source(source)
   except SyntaxError as exc:  # pragma: no cover - defensive
     raise ExtractionError(f"Generated output is not valid Python: {exc}") from exc
   return source

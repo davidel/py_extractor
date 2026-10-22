@@ -71,6 +71,23 @@ Key options:
 | `--offline` | Disallow network access |
 | `--report text\|json\|none` | Resolution report on stderr |
 
+### Verification
+
+The generated file is always passed through the **full Python compiler** (`compile()`),
+which is stronger than `ast.parse` and catches errors such as a stray top-level
+`return`/`break`/`yield` or a duplicate argument that inlining could produce.
+
+On top of that, two opt-in checks are available:
+
+| Flag | What it does |
+| --- | --- |
+| `--verify-compile` | Byte-compiles the written `--out` file (`py_compile`) and reports the result |
+| `--verify-import` | Runs the generated file in an isolated **subprocess** and confirms the target symbol is actually importable (executes module-level code, so it is opt-in) |
+| `--verify-timeout S` | Timeout for `--verify-import` (default 60s) |
+
+Both exit non-zero on failure. The import check is how you detect a file that
+compiles but would `NameError`/`ImportError` the moment it is used.
+
 ## Library
 
 ```python
@@ -104,6 +121,17 @@ except AmbiguousSymbolError as exc:
 result = extract_symbol("github:owner/repo", "Thing",
                         choose=lambda symbol, candidates: candidates[1])
 ```
+
+Verification is available from the library too:
+
+```python
+from py_extractor import compile_file, compile_source, import_symbol
+
+compile_file("extracted.py")                  # ValueError-free VerifyResult
+compile_source(result.source)                 # raises SyntaxError if invalid
+import_symbol("MyClass", source=result.source)  # runs in a subprocess
+```
+
 ## Trusted packages
 
 The curated registry lives in `src/py_extractor/data/trusted_packages.toml`
