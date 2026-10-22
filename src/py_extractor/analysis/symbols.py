@@ -58,6 +58,30 @@ def _record(node: ast.AST, symbols: ModuleSymbols) -> None:
     symbols.assignments[node.target.id] = node
 
 
+def _member_names(node: ast.AST) -> list[str]:
+  """Return the names bound directly inside *node* (defs and assignments)."""
+  names: list[str] = []
+  for child in getattr(node, "body", []):
+    if isinstance(child, _DEF_TYPES):
+      names.append(child.name)
+    elif isinstance(child, ast.Assign):
+      names.extend(t.id for t in child.targets if isinstance(t, ast.Name))
+    elif isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name):
+      names.append(child.target.id)
+  return names
+
+
+def _suggest(label: str, names: list[str], limit: int = 8) -> str:
+  """Return an `` Available <label>: a, b, ...`` hint, or ``""`` when empty."""
+  unique = sorted(set(names))
+  if not unique:
+    return ""
+  shown = unique[:limit]
+  more = len(unique) - len(shown)
+  tail = f", ... (+{more} more)" if more else ""
+  return f" Available {label}: {', '.join(shown)}{tail}."
+
+
 def find_definition(tree: ast.Module, name: str) -> ast.AST:
   """Locate a top-level definition by *name* (optionally ``Class.method``).
 
@@ -75,7 +99,10 @@ def find_definition(tree: ast.Module, name: str) -> ast.AST:
   symbols = collect_module_symbols(tree)
   node = symbols.get(head)
   if node is None:
-    raise SymbolNotFoundError(f"Symbol {head!r} not found at module level")
+    hint = "" if tail else " Nested members must be referenced as 'Class.member'."
+    raise SymbolNotFoundError(f"Symbol {head!r} not found at module level.{hint}" +
+                              _suggest("top-level names",
+                                       list(symbols.defs) + list(symbols.assignments)))
   if not tail:
     return node
   current: ast.AST = node
@@ -94,7 +121,8 @@ def find_definition(tree: ast.Module, name: str) -> ast.AST:
       if match is not None:
         break
     if match is None:
-      raise SymbolNotFoundError(f"Symbol {part!r} not found inside {name!r}")
+      raise SymbolNotFoundError(f"Symbol {part!r} not found inside {name!r}." +
+                                _suggest("members", _member_names(current)))
     current = match
   return current
 

@@ -101,7 +101,10 @@ def locate_symbol(
         matches.append(ResolvedSymbol(path, _module_of(tree, path), symbol, _is_package_file(path)))
         break
   if not matches:
-    raise SymbolNotFoundError(f"Symbol {symbol!r} not found anywhere in repository")
+    hint = "" if "." in symbol else (
+        " Nested members must be referenced as 'Class.member'; the repository-wide "
+        "search only matches top-level definitions.")
+    raise SymbolNotFoundError(f"Symbol {symbol!r} not found anywhere in repository.{hint}")
   if len(matches) == 1:
     return matches[0]
 

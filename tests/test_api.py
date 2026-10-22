@@ -71,13 +71,16 @@ def test_extract_symbol_strict_trust(repo: Path, tmp_path: Path) -> None:
 
 
 def test_extract_symbol_missing_symbol(repo: Path, tmp_path: Path) -> None:
-  with pytest.raises(SymbolNotFoundError):
+  with pytest.raises(SymbolNotFoundError) as exc:
     extract_symbol(
         str(repo),
         "Nope",
         options=ExtractOptions(cache_dir=tmp_path / "c"),
         fetch_third_party=False,
     )
+  # The repo-wide message points at the nested-member form.
+  assert "not found anywhere in repository" in str(exc.value)
+  assert "'Class.member'" in str(exc.value)
 
 
 def test_extract_symbol_file_hint(repo: Path, tmp_path: Path) -> None:

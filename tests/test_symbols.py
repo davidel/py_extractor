@@ -48,6 +48,32 @@ def test_find_definition_missing_raises() -> None:
     find_definition(ast.parse("x = 1\n"), "nope")
 
 
+def test_missing_top_level_error_lists_available_names() -> None:
+  tree = ast.parse("class Alpha:\n    pass\n\nclass Beta:\n    pass\n\nCONST = 3\n")
+  with pytest.raises(SymbolNotFoundError) as exc:
+    find_definition(tree, "Gamma")
+  message = str(exc.value)
+  assert "not found at module level" in message
+  assert "Alpha" in message and "Beta" in message and "CONST" in message
+  assert "'Class.member'" in message  # nudges toward the nested form
+
+
+def test_missing_nested_member_lists_members() -> None:
+  tree = ast.parse("class Alpha:\n    def method(self):\n        pass\n    value = 1\n")
+  with pytest.raises(SymbolNotFoundError) as exc:
+    find_definition(tree, "Alpha.missing")
+  message = str(exc.value)
+  assert "not found inside 'Alpha.missing'" in message
+  assert "method" in message and "value" in message
+
+
+def test_available_names_are_truncated_when_many() -> None:
+  body = "".join(f"def f{i}():\n    pass\n\n" for i in range(20))
+  with pytest.raises(SymbolNotFoundError) as exc:
+    find_definition(ast.parse(body), "nope")
+  assert "more)" in str(exc.value)
+
+
 # --- free-name analysis -----------------------------------------------------
 
 
