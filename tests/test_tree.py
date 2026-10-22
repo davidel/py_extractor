@@ -95,3 +95,25 @@ def test_from_tarball_only_python_files() -> None:
 def test_paths_sorted() -> None:
   tree = SourceTree.from_mapping({"b.py": "", "a.py": "", "c/d.py": ""})
   assert tree.paths() == ["a.py", "b.py", "c/d.py"]
+
+
+def test_leading_bom_is_stripped() -> None:
+  """A UTF-8 BOM must not survive into the tree (``ast.parse`` rejects it)."""
+  tree = SourceTree()
+  tree.add("pkg/mod.py", "\ufeffx = 1\n")
+  assert tree.get("pkg/mod.py") == "x = 1\n"
+
+
+def test_bom_stripped_from_mapping_and_tarball() -> None:
+  from_mapping = SourceTree.from_mapping({"pkg/mod.py": "\ufeffx = 1\n"})
+  assert from_mapping.get("pkg/mod.py") == "x = 1\n"
+  body = _make_tarball({"pkg/mod.py": "\ufeffy = 2\n"})
+  from_tarball = SourceTree.from_tarball(body)
+  assert from_tarball.get("pkg/mod.py") == "y = 2\n"
+
+
+def test_bom_prefixed_source_is_parseable() -> None:
+  import ast
+
+  tree = SourceTree.from_mapping({"pkg/mod.py": "\ufeffclass C:\n  pass\n"})
+  ast.parse(tree.get("pkg/mod.py"))

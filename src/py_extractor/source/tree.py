@@ -32,7 +32,14 @@ class SourceTree:
   # -- construction -------------------------------------------------------
 
   def add(self, path: str, text: str) -> None:
-    """Add a single file to the tree."""
+    """Add a single file to the tree.
+
+    A leading UTF-8 BOM (``\\ufeff``) is stripped: it is a byte-order artifact
+    rather than source, and ``ast.parse`` rejects it with "invalid non-printable
+    character U+FEFF". Several real-world repositories ship BOM-prefixed files.
+    """
+    if text.startswith("\ufeff"):
+      text = text[1:]
     rel = str(PurePosixPath(path))
     self.files[rel] = text
     if PurePosixPath(rel).name == "__init__.py":

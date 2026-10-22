@@ -71,7 +71,7 @@ def test_extract_from_hf_repo_offline(monkeypatch, tmp_path) -> None:
   assert "class Widget" in result.source
   assert "import math" in result.source  # stdlib kept as an import
   assert "def area" in result.source
-  assert _LAST["json"] == ["https://huggingface.co/api/models/owner/name/tree/main?recursive=true"]
+  assert _LAST["json"] == ["https://huggingface.co/api/models/owner/name/tree/HEAD?recursive=true"]
 
 
 def test_extract_from_hf_dataset_repo_offline(monkeypatch, tmp_path) -> None:
@@ -84,9 +84,9 @@ def test_extract_from_hf_dataset_repo_offline(monkeypatch, tmp_path) -> None:
   )
   ast.parse(result.source)
   assert _LAST["json"] == [
-      "https://huggingface.co/api/datasets/owner/name/tree/main?recursive=true"
+      "https://huggingface.co/api/datasets/owner/name/tree/HEAD?recursive=true"
   ]
-  assert all("/datasets/owner/name/resolve/main/" in u for u in _LAST["text"])
+  assert all("/datasets/owner/name/resolve/HEAD/" in u for u in _LAST["text"])
 
 
 def test_hf_repo_type_is_parsed_for_url_building(monkeypatch, tmp_path) -> None:
@@ -98,8 +98,8 @@ def test_hf_repo_type_is_parsed_for_url_building(monkeypatch, tmp_path) -> None:
       fetch_third_party=False,
   )
   assert "class Widget" in result.source
-  assert _LAST["json"] == ["https://huggingface.co/api/spaces/owner/name/tree/main?recursive=true"]
-  assert all("/spaces/owner/name/resolve/main/" in u for u in _LAST["text"])
+  assert _LAST["json"] == ["https://huggingface.co/api/spaces/owner/name/tree/HEAD?recursive=true"]
+  assert all("/spaces/owner/name/resolve/HEAD/" in u for u in _LAST["text"])
 
 
 def test_load_tree_hf_uses_repo_type(monkeypatch) -> None:

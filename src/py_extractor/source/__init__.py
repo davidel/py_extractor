@@ -41,8 +41,8 @@ def load_tree(repo: RepoRef, options: ExtractOptions | None = None) -> SourceTre
       body = fetcher.fetch_tarball(repo.tarball_url())
     except RepoNotFoundError as exc:
       raise RepoNotFoundError(
-          f"Could not download {repo.slug}@{repo.ref}. If the default branch is not "
-          f"'main', pass --ref (e.g. --ref master).") from exc
+          f"Could not download {repo.slug}@{repo.ref}. Check the repository name, or pass "
+          f"--ref to select a specific branch/tag/commit (e.g. --ref v1.0).") from exc
     return SourceTree.from_tarball(body)
 
   if repo.kind == "hf":

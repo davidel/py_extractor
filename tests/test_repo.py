@@ -179,3 +179,25 @@ def test_cache_key_distinct_per_ref() -> None:
 def test_git_suffix_stripped() -> None:
   ref = parse_repo("https://github.com/psf/requests.git")
   assert ref.name == "requests"
+
+
+def test_default_ref_is_head() -> None:
+  """The default ref resolves to the repository's real default branch.
+
+  ``HEAD`` is symbolic: GitHub (codeload) and Hugging Face both resolve it to
+  the default branch, so ``master``-era repositories work without the caller
+  knowing the branch name.
+  """
+  assert parse_repo("github:psf/requests").ref == "HEAD"
+  assert parse_repo("hf:owner/name").ref == "HEAD"
+  assert parse_repo("pallets/flask").ref == "HEAD"
+  assert RepoRef("github", "o", "n").ref == "HEAD"
+
+
+def test_explicit_ref_overrides_default() -> None:
+  assert parse_repo("github:psf/requests", "v2.31.0").ref == "v2.31.0"
+
+
+def test_head_ref_builds_default_branch_urls() -> None:
+  ref = parse_repo("github:google-research/bert")
+  assert ref.tarball_url() == ("https://codeload.github.com/google-research/bert/tar.gz/HEAD")

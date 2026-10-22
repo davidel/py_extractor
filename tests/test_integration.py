@@ -29,6 +29,16 @@ DAT_FILE = "basicsr/archs/dat_arch.py"
 HF_SPACE = "hf:spaces/gradio/hello_world"
 HF_FILE = "run.py"
 
+# A ``master``-era repository (its default branch is *not* ``main``).  Used to
+# prove the default ``HEAD`` ref resolves to the real default branch.
+MASTER_REPO = "github:google-research/bert"
+MASTER_FILE = "modeling.py"
+
+# A repository whose Python files are UTF-8-BOM-prefixed (ast.parse rejects a
+# leading U+FEFF), used to prove BOM stripping end-to-end.
+BOM_REPO = "github:NVlabs/stylegan2-ada-pytorch"
+BOM_FILE = "training/networks.py"
+
 
 def _options(tmp_path) -> ExtractOptions:
   return ExtractOptions(cache_dir=tmp_path / "cache",
@@ -132,3 +142,33 @@ def test_extract_function_from_hf_space(tmp_path) -> None:
   ast.parse(result.source)
   assert "def greet" in result.source
   assert result.target.symbol == "greet"
+
+
+def test_default_ref_resolves_master_branch(tmp_path) -> None:
+  """A ``master``-era repo works without passing ``--ref master``.
+
+  The default ``HEAD`` ref must resolve to the repository's real default branch
+  (here ``master``) rather than assuming ``main``.
+  """
+  result = extract_symbol(
+      MASTER_REPO,
+      "BertConfig",
+      file_hint=MASTER_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  assert "class BertConfig" in result.source
+
+
+def test_extract_from_bom_prefixed_repository(tmp_path) -> None:
+  """Files starting with a UTF-8 BOM are parsed after the BOM is stripped."""
+  result = extract_symbol(
+      BOM_REPO,
+      "Generator",
+      file_hint=BOM_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  assert "class Generator" in result.source

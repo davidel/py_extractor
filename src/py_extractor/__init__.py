@@ -153,7 +153,7 @@ def make_third_party_resolver(fetcher: Fetcher) -> ThirdPartyResolver:
       repo = extract_github_repo(payload.get("info", {}))
       if repo is None:
         continue
-      repo_ref = RepoRef("github", repo.owner, repo.name, "main")
+      repo_ref = RepoRef("github", repo.owner, repo.name, "HEAD")
       try:
         tree = load_tree(repo_ref, options)
       except Exception:  # noqa: BLE001 - any failure degrades to "unresolved"
@@ -170,7 +170,7 @@ def extract_symbol(
     symbol: str,
     *,
     file_hint: str | None = None,
-    ref: str = "main",
+    ref: str = "HEAD",
     options: ExtractOptions | None = None,
     choose: Callable[[str, list[str]], str | None] | None = None,
     trusted: set[str] | frozenset[str] | None = None,

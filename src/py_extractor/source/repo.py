@@ -23,7 +23,8 @@ class RepoRef:
     kind: One of ``"github"``, ``"hf"`` or ``"local"``.
     owner: Repository owner (for github) or namespace (for hf).
     name: Repository name.
-    ref: Git ref (branch, tag or commit). Ignored for ``local``.
+    ref: Git ref (branch, tag or commit). Ignored for ``local``. The default
+      ``"HEAD"`` resolves to the repository's default branch.
     path: Filesystem path (only for ``local``).
     repo_type: Hugging Face repository type (``"model"``, ``"dataset"`` or
       ``"space"``). Ignored for github/local. Selects the correct API and
@@ -33,7 +34,7 @@ class RepoRef:
   kind: str
   owner: str
   name: str
-  ref: str = "main"
+  ref: str = "HEAD"
   path: Path | None = None
   repo_type: str = "model"
 
@@ -90,7 +91,7 @@ class RepoRef:
     raise RepoNotFoundError(f"{self.kind!r} repositories have no per-file resolve URL")
 
 
-def parse_repo(spec: str, ref: str = "main") -> RepoRef:
+def parse_repo(spec: str, ref: str = "HEAD") -> RepoRef:
   """Parse a repository specification into a :class:`RepoRef`.
 
   Accepted forms::
@@ -104,7 +105,10 @@ def parse_repo(spec: str, ref: str = "main") -> RepoRef:
 
   Args:
     spec: The repository specification string.
-    ref: Default git ref to use when the spec does not include one.
+    ref: Default git ref to use when the spec does not include one. The default
+      ``"HEAD"`` is a symbolic ref that GitHub and Hugging Face both resolve to
+      the repository's *actual* default branch, so ``master``-era repositories
+      work without the caller having to know the branch name.
 
   Returns:
     A parsed :class:`RepoRef`.

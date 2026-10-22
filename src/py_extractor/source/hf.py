@@ -19,8 +19,9 @@ def load_hf_tree(repo: RepoRef, fetcher: Fetcher) -> SourceTree:
   try:
     entries = fetcher.fetch_json(repo.tree_api_url())
   except RepoNotFoundError as exc:
-    raise RepoNotFoundError(f"Could not list {repo.slug}@{repo.ref}. If the default branch is not "
-                            f"'main', pass --ref.") from exc
+    raise RepoNotFoundError(
+        f"Could not list {repo.slug}@{repo.ref}. Check the repository name, or pass "
+        f"--ref to select a specific branch/tag/commit.") from exc
   if not isinstance(entries, list):
     raise SourceError(f"Unexpected HF tree response for {repo.slug}")
 

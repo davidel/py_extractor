@@ -27,7 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
                       default=None,
                       help="Repo-relative reference file. Overrides the symbol search "
                       "(use this instead of the interactive prompt for scripts/CI).")
-  parser.add_argument("--ref", default="main", help="Git ref (branch/tag/commit). Default: main.")
+  parser.add_argument("--ref",
+                      default="HEAD",
+                      help="Git ref (branch/tag/commit). Default: HEAD, which resolves to the "
+                      "repository's default branch.")
   parser.add_argument("--out",
                       default=None,
                       help="Write the generated file here (default: stdout).")

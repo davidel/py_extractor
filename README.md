@@ -69,7 +69,7 @@ Key options:
 | Option | Meaning |
 | --- | --- |
 | `--file PATH` | Reference file; overrides the symbol search (scripts/CI) |
-| `--ref REF` | Git ref (branch/tag/commit) |
+| `--ref REF` | Git ref (branch/tag/commit). Default `HEAD` = the repo's default branch |
 | `--out FILE` | Write output to a file (default: stdout) |
 | `-y, --yes` | Never prompt; fail if the symbol is ambiguous |
 | `--trust a,b` | Extra trusted top-level module names |
@@ -79,6 +79,12 @@ Key options:
 | `--no-third-party` | Never attempt to inline third-party code |
 | `--offline` | Disallow network access |
 | `--report text\|json\|none` | Resolution report on stderr |
+
+The default ref is `HEAD`, a symbolic ref that GitHub and Hugging Face both
+resolve to the repository's **actual default branch**. This means `master`-era
+repositories (e.g. `google-research/bert`, `openai/gpt-2`) work without knowing
+the branch name. Files are decoded as UTF-8 and a leading byte-order mark (BOM)
+is stripped, since `ast.parse` rejects a stray `U+FEFF`.
 
 ### Verification
 
