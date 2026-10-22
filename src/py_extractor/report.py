@@ -30,6 +30,10 @@ def render_text(result: ClosureResult) -> str:
       path = ".".join((binding.local, *binding.parts))
       lines.append(f"  - {path} -> namespace({', '.join(binding.members)})")
   lines.append("")
+  lines.append(f"Optional-import blocks preserved ({len(result.guarded_blocks)}):")
+  for block in result.guarded_blocks:
+    lines.append(f"  - {block.module}:{block.lineno}")
+  lines.append("")
   if result.flags:
     lines.append(f"Warnings ({len(result.flags)}):")
     for flag in result.flags:
@@ -69,6 +73,10 @@ def render_json(result: ClosureResult) -> str:
           "parts": list(binding.parts),
           "members": list(binding.members),
       } for binding in result.bindings],
+      "guarded_blocks": [{
+          "module": block.module,
+          "lineno": block.lineno,
+      } for block in result.guarded_blocks],
       "flags": [{
           "kind": flag.kind.value,
           "detail": flag.detail,

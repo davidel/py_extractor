@@ -281,6 +281,16 @@ def collect_bound_names(node: ast.AST) -> set[str]:
   return frozenset()
 
 
+def collect_statement_bindings(stmts: list[ast.stmt]) -> set[str]:
+  """Return names bound at the immediate scope of *stmts*.
+
+  Unlike :func:`collect_bound_names` this accepts arbitrary statements (e.g. a
+  guarding ``try``/``if`` block) and returns the names they bind in the
+  enclosing (module) scope, without descending into nested scopes.
+  """
+  return _block_bindings(stmts)
+
+
 def collect_loaded_names(node: ast.AST) -> set[str]:
   """Return every non-builtin name loaded within *node* (scopeless)."""
   loaded = {
@@ -302,6 +312,7 @@ __all__ = [
     "collect_dependency_names",
     "collect_loaded_names",
     "collect_module_symbols",
+    "collect_statement_bindings",
     "find_definition",
     "free_names",
 ]

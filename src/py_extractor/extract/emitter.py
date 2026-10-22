@@ -40,6 +40,9 @@ def emit(
     lines.extend(import_lines)
     lines.append("")
 
+  for block in _render_guarded_blocks(result):
+    lines.extend(block)
+
   for unit in result.units:
     lines.extend(_render_unit(unit))
     for binding in _bindings_for_unit(result, unit):
@@ -119,6 +122,15 @@ def _module_definition_source(node: ast.AST) -> str:
       blocks.append(ast.unparse(stmt))
     # Docstrings / bare expressions / if __name__ blocks are intentionally skipped.
   return "\n\n".join(blocks)
+
+
+def _render_guarded_blocks(result: ClosureResult) -> list[list[str]]:
+  """Render verbatim optional-import blocks, each as its own line group."""
+  blocks: list[list[str]] = []
+  for block in sorted(result.guarded_blocks, key=lambda b: (b.module, b.lineno)):
+    marker = f"# --- optional import preserved ({block.module}:{block.lineno}) ---"
+    blocks.append([marker, block.source, ""])
+  return blocks
 
 
 def _bindings_for_unit(result: ClosureResult, unit: ExtractedUnit) -> list[Binding]:

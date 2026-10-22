@@ -85,6 +85,20 @@ def test_nested_imports_collected() -> None:
   assert {imp.root for imp in imports} == {"os", "x"}
 
 
+def test_escaping_relative_import_is_skipped() -> None:
+  # A relative import that rises above the top-level package is invalid and is
+  # skipped rather than aborting analysis of the rest of the file.
+  imports = _imports("from ...deep import x\nimport os\n", module="pkg.mod")
+  assert {imp.root for imp in imports} == {"os"}
+
+
+def test_collect_imports_accepts_a_subnode() -> None:
+  # collect_imports can be pointed at a single statement (used for guard blocks).
+  stmt = ast.parse("try:\n    import ujson\nexcept ImportError:\n    import json\n").body[0]
+  imports = collect_imports(stmt, "pkg.mod")
+  assert {imp.module for imp in imports} == {"ujson", "json"}
+
+
 def test_resolve_relative_function() -> None:
   # Level 1 = the module's own package, so 'pkg.a.b.mod' -> 'pkg.a.b'.
   assert resolve_relative("pkg.a.b.mod", False, 1, "helpers") == "pkg.a.b.helpers"
