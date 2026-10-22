@@ -22,6 +22,14 @@ def render_text(result: ClosureResult) -> str:
   for imp in result.kept_imports:
     lines.append(f"  - {_render_import(imp)}")
   lines.append("")
+  lines.append(f"Local bindings ({len(result.bindings)}):")
+  for binding in result.bindings:
+    if binding.kind == "alias":
+      lines.append(f"  - {binding.local} = {binding.target}")
+    else:
+      path = ".".join((binding.local, *binding.parts))
+      lines.append(f"  - {path} -> namespace({', '.join(binding.members)})")
+  lines.append("")
   if result.flags:
     lines.append(f"Warnings ({len(result.flags)}):")
     for flag in result.flags:
@@ -54,6 +62,13 @@ def render_json(result: ClosureResult) -> str:
       } for imp in result.kept_imports],
       "namespace_roots":
           result.namespace_roots,
+      "bindings": [{
+          "kind": binding.kind,
+          "local": binding.local,
+          "target": binding.target,
+          "parts": list(binding.parts),
+          "members": list(binding.members),
+      } for binding in result.bindings],
       "flags": [{
           "kind": flag.kind.value,
           "detail": flag.detail,

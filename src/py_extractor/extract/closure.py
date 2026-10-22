@@ -65,6 +65,35 @@ class KeptImport:
   asname: str | None = None
 
 
+@dataclass(frozen=True)
+class Binding:
+  """A local name the extracted code needs, bound to inlined definitions.
+
+  Importing a name into a file and then inlining the *definition* leaves the
+  call site dangling (``from .core import Widget as W`` -> ``W()`` fails with
+  ``NameError`` once ``Widget`` is flattened). A binding re-creates the missing
+  local name so the flattened code still resolves.
+
+  Attributes:
+    kind: ``"alias"`` (``W = Widget``) or ``"module"`` (a namespace object
+      exposing a module's inlined members).
+    local: The name used at the call site (``W``, ``core``, ``pkg``).
+    target: For ``"alias"``, the inlined top-level name to alias.
+    unit_key: The unit this binding must be emitted after (the definition it
+      depends on), so ordering matches dependency order.
+    parts: For ``"module"``, the dotted path under *local* (``("core",)`` for
+      ``import pkg.core``); empty when *local* names the module directly.
+    members: For ``"module"``, the inlined top-level names to expose.
+  """
+
+  kind: str
+  local: str
+  target: str | None = None
+  unit_key: str | None = None
+  parts: tuple[str, ...] = ()
+  members: tuple[str, ...] = ()
+
+
 @dataclass
 class ClosureResult:
   """The full result of the closure computation."""
@@ -73,6 +102,7 @@ class ClosureResult:
   units: list[ExtractedUnit]
   kept_imports: list[KeptImport]
   namespace_roots: dict[str, str] = field(default_factory=dict)
+  bindings: list[Binding] = field(default_factory=list)
   flags: list[Flag] = field(default_factory=list)
   repo_trees: dict[str, SourceTree] = field(default_factory=dict)
 
@@ -104,6 +134,8 @@ class _ClosureBuilder:
     self.order: list[str] = []
     self.kept_imports: dict[tuple, KeptImport] = {}
     self.namespace_roots: dict[str, str] = {}
+    self.bindings: dict[tuple, Binding] = {}
+    self._binding_locals: dict[str, tuple] = {}
     self.flags: list[Flag] = []
     self.repo_trees: dict[str, SourceTree] = {root_repo_id: root_tree}
     self._trees: dict[str, SourceTree] = {root_repo_id: root_tree}
@@ -122,6 +154,7 @@ class _ClosureBuilder:
         units=[self.units[key] for key in ordered],
         kept_imports=list(self.kept_imports.values()),
         namespace_roots=dict(self.namespace_roots),
+        bindings=list(self.bindings.values()),
         flags=self.flags,
         repo_trees=dict(self.repo_trees),
     )
@@ -269,11 +302,9 @@ class _ClosureBuilder:
     # Not stdlib/trusted: is it an in-repo module?
     internal = resolve_import_name(tree, imp, imported.name, current_module=resolved.module)
     if internal is not None:
-      if internal.symbol is None:
-        # A module referenced as a namespace -> remember the alias for flattening.
-        self.namespace_roots[imported.bound_name] = internal.module
       self._process(repo_id, internal)
       self._edges[key].add(self._key(repo_id, internal))
+      self._record_binding(repo_id, internal, imported)
       return
 
     # Try an external repository resolver (PyPI -> GitHub).
@@ -283,10 +314,9 @@ class _ClosureBuilder:
       internal_foreign = self._resolve_in_foreign(foreign_id, foreign_tree, imp, imported)
       if internal_foreign is not None:
         self._trees.setdefault(foreign_id, foreign_tree)
-        if internal_foreign.symbol is None:
-          self.namespace_roots[imported.bound_name] = internal_foreign.module
         self._process(foreign_id, internal_foreign)
         self._edges[key].add(self._key(foreign_id, internal_foreign))
+        self._record_binding(foreign_id, internal_foreign, imported)
         return
 
     # Keep as an import + flag (matches the "warn but still emit" policy).
@@ -308,6 +338,69 @@ class _ClosureBuilder:
       record = KeptImport("from", imp.module, imported.name, imported.asname)
     key = (record.kind, record.module, record.name, record.asname)
     self.kept_imports.setdefault(key, record)
+
+  # -- local bindings -----------------------------------------------------
+
+  def _add_binding(self, binding: Binding, dedupe_key: tuple) -> None:
+    """Store *binding*, flagging a local name bound to two different targets."""
+    existing = self.bindings.get(dedupe_key)
+    if existing is not None:
+      return
+    clash = self._binding_locals.get(binding.local)
+    if clash is not None and clash != dedupe_key:
+      self.flags.append(
+          Flag(
+              FlagKind.COLLISION,
+              f"local name {binding.local!r} is bound to two different inlined "
+              f"definitions; only one is emitted",
+              f"binding {binding.local}",
+          ))
+      return
+    self._binding_locals[binding.local] = dedupe_key
+    self.bindings[dedupe_key] = binding
+
+  def _record_binding(self, repo_id: str, internal: ResolvedSymbol, imported: ImportedName) -> None:
+    """Record the local name the call site needs for an inlined definition.
+
+    Resolving and inlining the *definition* is not enough: the importing file
+    bound it under a local name (an alias, or a module object). Without a
+    binding the flattened code raises ``NameError`` at the call site.
+    """
+    unit_key = self._key(repo_id, internal)
+    if internal.symbol is not None:
+      # ``from .core import Widget as W`` -> ``W = Widget`` (only when aliased;
+      # a bare ``from .core import Widget`` already binds ``Widget``).
+      if imported.asname:
+        binding = Binding("alias", imported.asname, target=internal.symbol, unit_key=unit_key)
+        self._add_binding(binding, ("alias", binding.local, binding.target))
+      return
+
+    # Module-object binding: ``from . import core`` / ``import pkg.core``.
+    members = self._module_members(repo_id, internal)
+    if not members:
+      return
+    if imp_target := (imported.asname or None):
+      # ``import pkg.core as c`` / ``from . import core as c`` -> ``c``.
+      local, parts = imp_target, ()
+    elif "." in imported.name:
+      # ``import pkg.core`` binds ``pkg``; access is ``pkg.core.Widget``.
+      local, parts = imported.name.split(".")[0], tuple(imported.name.split(".")[1:])
+    else:
+      # ``from . import core`` -> ``core``.
+      local, parts = imported.name, ()
+    binding = Binding("module", local, unit_key=unit_key, parts=parts, members=members)
+    self._add_binding(binding, ("module", binding.local, binding.parts))
+    self.namespace_roots.setdefault(local, internal.module)
+
+  def _module_members(self, repo_id: str, internal: ResolvedSymbol) -> tuple[str, ...]:
+    """Return the inlined top-level names exposed by a whole-module unit."""
+    unit = self.units.get(self._key(repo_id, internal))
+    if unit is None or not isinstance(unit.node, ast.Module):
+      return ()
+    symbols = collect_module_symbols(unit.node)
+    names = set(symbols.defs) | set(symbols.assignments)
+    names.discard("__all__")
+    return tuple(sorted(names))
 
   def _resolve_foreign(self, root: str) -> tuple[str, SourceTree] | None:
     if root in self._foreign:
@@ -384,6 +477,7 @@ def compute_closure(
 
 
 __all__ = [
+    "Binding",
     "ClosureResult",
     "ExtractedUnit",
     "Flag",

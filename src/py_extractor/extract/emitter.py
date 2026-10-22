@@ -6,7 +6,7 @@ import ast
 
 from ..errors import ExtractionError
 from ..verify import compile_source
-from .closure import ClosureResult, ExtractedUnit, KeptImport
+from .closure import Binding, ClosureResult, ExtractedUnit, KeptImport
 
 
 def _module_alias(unit: ExtractedUnit) -> str | None:
@@ -33,12 +33,17 @@ def emit(
   lines.append("")
 
   import_lines = _render_imports(result.kept_imports)
+  if any(binding.kind == "module" for binding in result.bindings):
+    # Namespace objects for module bindings are built with SimpleNamespace.
+    import_lines.append("import types as _py_extractor_types")
   if import_lines:
     lines.extend(import_lines)
     lines.append("")
 
   for unit in result.units:
     lines.extend(_render_unit(unit))
+    for binding in _bindings_for_unit(result, unit):
+      lines.extend(_render_binding(binding))
 
   if include_report:
     lines.append("")
@@ -114,6 +119,28 @@ def _module_definition_source(node: ast.AST) -> str:
       blocks.append(ast.unparse(stmt))
     # Docstrings / bare expressions / if __name__ blocks are intentionally skipped.
   return "\n\n".join(blocks)
+
+
+def _bindings_for_unit(result: ClosureResult, unit: ExtractedUnit) -> list[Binding]:
+  """Return the bindings whose definition *unit* provides, in stable order."""
+  return sorted(
+      (b for b in result.bindings if b.unit_key == unit.key),
+      key=lambda b: (b.kind, b.local, b.parts),
+  )
+
+
+def _render_binding(binding: Binding) -> list[str]:
+  """Render one local-name binding as Python source lines."""
+  if binding.kind == "alias":
+    return [f"{binding.local} = {binding.target}"]
+
+  # module binding: synthesise a namespace object exposing the inlined members.
+  ns = "_py_extractor_types.SimpleNamespace"
+  members = "".join(f", {name}={name}" for name in binding.members)
+  expr = f"{ns}({members[2:]})" if members else f"{ns}()"
+  for part in reversed(binding.parts):
+    expr = f"{ns}({part}={expr})"
+  return [f"{binding.local} = {expr}"]
 
 
 def _strip_docstring_possible(node: ast.AST) -> ast.AST:
