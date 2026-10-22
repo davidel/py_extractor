@@ -1,2 +1,17 @@
-# Chatty backups
+# Chatty backups / scratch
 .chatty/
+
+# py_extractor local caches
+.url_cache/
+.py_extractor_cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/

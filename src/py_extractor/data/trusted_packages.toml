@@ -1,0 +1,117 @@
+# Curated allow-list of well-known packages that are NOT inlined.
+#
+# Keys are *import names* (the top-level token used in an ``import`` statement),
+# NOT PyPI distribution names. Where the two differ we register the import name
+# (e.g. ``PIL`` for the ``pillow`` distribution, ``sklearn`` for
+# ``scikit-learn``, ``cv2`` for ``opencv-python``).
+#
+# The Python standard library is handled separately and automatically
+# (see ``py_extractor.config.STDLIB_MODULES``); it does not need to be listed.
+
+[packages]
+# --- Deep learning / ML frameworks & companions ---
+torch = "PyTorch"
+torchvision = "torchvision"
+torchaudio = "torchaudio"
+torchtext = "torchtext"
+tensorflow = "TensorFlow"
+keras = "Keras"
+jax = "JAX"
+jaxlib = "JAX (compiled runtime)"
+flax = "Flax"
+haiku = "Haiku"
+timm = "timm (PyTorch Image Models)"
+transformers = "Hugging Face Transformers"
+diffusers = "Hugging Face Diffusers"
+accelerate = "Hugging Face Accelerate"
+peft = "Hugging Face PEFT"
+trl = "Hugging Face TRL"
+datasets = "Hugging Face Datasets"
+huggingface_hub = "Hugging Face Hub"
+safetensors = "safetensors"
+sentencepiece = "sentencepiece"
+tokenizers = "Hugging Face Tokenizers"
+evaluate = "Hugging Face Evaluate"
+bitsandbytes = "bitsandbytes"
+einops = "einops"
+torchmetrics = "torchmetrics"
+lightning = "Lightning"
+pytorch_lightning = "PyTorch Lightning"
+onnx = "ONNX"
+onnxruntime = "ONNX Runtime"
+optimum = "Hugging Face Optimum"
+deepspeed = "DeepSpeed"
+xformers = "xformers"
+kornia = "Kornia"
+triton = "Triton"
+
+# --- Scientific / numeric computing ---
+numpy = "NumPy"
+scipy = "SciPy"
+pandas = "pandas"
+polars = "Polars"
+numba = "Numba"
+sympy = "SymPy"
+networkx = "NetworkX"
+statsmodels = "statsmodels"
+sklearn = "scikit-learn"
+xarray = "xarray"
+dask = "Dask"
+cupy = "CuPy"
+joblib = "joblib"
+
+# --- Computer vision / imaging / media ---
+PIL = "Pillow"
+cv2 = "OpenCV"
+imageio = "imageio"
+skimage = "scikit-image"
+albumentations = "Albumentations"
+matplotlib = "Matplotlib"
+seaborn = "seaborn"
+plotly = "Plotly"
+bokeh = "Bokeh"
+av = "PyAV"
+moviepy = "MoviePy"
+librosa = "librosa"
+soundfile = "python-soundfile"
+pydub = "pydub"
+
+# --- Data formats / IO / serialization ---
+pyarrow = "Apache Arrow"
+h5py = "h5py"
+zarr = "Zarr"
+yaml = "PyYAML"
+toml = "toml"
+tomli = "tomli"
+bs4 = "Beautiful Soup"
+lxml = "lxml"
+openpyxl = "openpyxl"
+xlrd = "xlrd"
+
+# --- Web / HTTP / CLI (well-known, inert) ---
+requests = "Requests"
+urllib3 = "urllib3"
+httpx = "HTTPX"
+aiohttp = "aiohttp"
+flask = "Flask"
+django = "Django"
+fastapi = "FastAPI"
+starlette = "Starlette"
+pydantic = "Pydantic"
+sqlalchemy = "SQLAlchemy"
+jinja2 = "Jinja2"
+click = "Click"
+typer = "Typer"
+rich = "Rich"
+tqdm = "tqdm"
+colorama = "colorama"
+dotenv = "python-dotenv"
+
+# --- Tooling / build / packaging ---
+pytest = "pytest"
+setuptools = "setuptools"
+pkg_resources = "pkg_resources (setuptools)"
+packaging = "packaging"
+wheel = "wheel"
+pip = "pip"
+dateutil = "python-dateutil"

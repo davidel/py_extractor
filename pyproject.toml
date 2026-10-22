@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "py_extractor"
+version = "0.1.0"
+description = "Extract a self-contained, single-file copy of a class or function from a remote repository, transitively vendoring only the code it actually needs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "py_extractor authors" }]
+keywords = ["vendor", "extract", "ast", "dependency", "github", "pypi", "single-file"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Code Generators",
+  "Topic :: Utilities",
+]
+dependencies = ["requests>=2.28"]
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pytest-cov>=4"]
+dev = ["ruff>=0.5", "yapf>=0.40", "pytest>=7", "pytest-cov>=4"]
+
+[project.scripts]
+py-extractor = "py_extractor.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/example/py_extractor"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+py_extractor = ["data/*.toml"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+markers = [
+  "network: tests that require outbound network access (deselect with '-m \"not network\"')",
+]
+# Offline suite by default; run network tests explicitly with: pytest -m network
+addopts = "-ra -q -m 'not network'"
+
+[tool.coverage.run]
+source = ["py_extractor"]
+branch = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011", "SIM117"]
