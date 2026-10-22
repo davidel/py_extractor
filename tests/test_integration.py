@@ -25,6 +25,10 @@ pytestmark = pytest.mark.network
 DAT_REPO = "github:zhengchen1999/DAT"
 DAT_FILE = "basicsr/archs/dat_arch.py"
 
+# A tiny, stable Hugging Face Space used to exercise the HF tree/resolve path.
+HF_SPACE = "hf:spaces/gradio/hello_world"
+HF_FILE = "run.py"
+
 
 def _options(tmp_path) -> ExtractOptions:
   return ExtractOptions(cache_dir=tmp_path / "cache",
@@ -114,3 +118,17 @@ def test_generated_file_compiles_and_symbol_is_importable(tmp_path) -> None:
   assert outcome.kind == "import"
   if not outcome.ok:
     assert outcome.detail  # a readable reason is always provided
+
+
+def test_extract_function_from_hf_space(tmp_path) -> None:
+  """Load a Hugging Face Space via the tree/resolve API and extract a function."""
+  result = extract_symbol(
+      HF_SPACE,
+      "greet",
+      file_hint=HF_FILE,
+      options=ExtractOptions(cache_dir=tmp_path / "cache"),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  assert "def greet" in result.source
+  assert result.target.symbol == "greet"

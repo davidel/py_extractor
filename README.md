@@ -40,6 +40,15 @@ py-extractor https://github.com/pallets/flask Flask --out flask_flask.py
 python -m py_extractor github:owner/repo SymbolName --report json
 ```
 
+Hugging Face **models**, **datasets** and **spaces** are all supported; the repo
+type selects the correct API and resolve URL prefixes::
+
+```bash
+py-extractor hf:owner/model-name SymbolName            # model  (default)
+py-extractor hf:datasets/owner/dataset-name SymbolName # dataset
+py-extractor hf:spaces/owner/space-name SymbolName     # space
+```
+
 The symbol is discovered automatically by scanning the whole repository. If the
 name is defined in **more than one file**, the CLI asks which one to use::
 
@@ -142,5 +151,9 @@ trusted automatically and never needs to be listed.
 
 ```bash
 pytest                      # offline suite (network tests deselected)
-pytest -m network           # real GitHub integration tests
+pytest -m network           # real GitHub / Hugging Face integration tests
 ```
+
+CI (`.github/workflows/ci.yml`) runs ruff, `yapf --diff`, and the offline suite
+with coverage on every push/PR. The network integration suite runs on demand
+(`workflow_dispatch`) and nightly.

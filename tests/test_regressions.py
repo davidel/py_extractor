@@ -94,13 +94,17 @@ def test_bug7_resolution_uses_real_tree_not_path_guessing() -> None:
 def test_bug8_no_hardcoded_repo_sniffing() -> None:
   """exa.py hardcoded 'repo == DAT or author == w-e-w' to detect Hugging Face."""
   import inspect
+  import re
 
   import py_extractor
   from py_extractor.source import repo as repo_mod
 
   src = inspect.getsource(repo_mod) + inspect.getsource(py_extractor)
   assert "w-e-w" not in src
-  assert "DAT" not in src
+  # Whole-word match: a hardcoded ``DAT`` repo/author token must not appear, but
+  # unrelated identifiers that merely embed those letters (e.g. ``DATASET``) are
+  # fine.
+  assert not re.search(r"\bDAT\b", src)
 
 
 def test_bug_stdlib_auto_whitelisted() -> None:

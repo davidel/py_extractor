@@ -26,7 +26,12 @@ def load_hf_tree(repo: RepoRef, fetcher: Fetcher) -> SourceTree:
 
   tree = SourceTree()
   for entry in entries:
-    path = entry.get("path") if isinstance(entry, dict) else None
+    if not isinstance(entry, dict):
+      continue
+    # The tree API tags entries; skip directories/submodules when present.
+    if entry.get("type", "file") != "file":
+      continue
+    path = entry.get("path")
     if not path or not path.endswith(_PY_EXTS):
       continue
     text = fetcher.fetch_text(repo.resolve_url(path))
