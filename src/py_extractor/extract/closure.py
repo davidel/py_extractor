@@ -132,6 +132,7 @@ class ClosureResult:
   namespace_roots: dict[str, str] = field(default_factory=dict)
   bindings: list[Binding] = field(default_factory=list)
   guarded_blocks: list[GuardedBlock] = field(default_factory=list)
+  future_imports: list[KeptImport] = field(default_factory=list)
   flags: list[Flag] = field(default_factory=list)
   repo_trees: dict[str, SourceTree] = field(default_factory=dict)
 
@@ -166,6 +167,7 @@ class _ClosureBuilder:
     self.bindings: dict[tuple, Binding] = {}
     self._binding_locals: dict[str, tuple] = {}
     self.guarded_blocks: dict[tuple, GuardedBlock] = {}
+    self.future_imports: dict[tuple, KeptImport] = {}
     self.flags: list[Flag] = []
     self.repo_trees: dict[str, SourceTree] = {root_repo_id: root_tree}
     self._trees: dict[str, SourceTree] = {root_repo_id: root_tree}
@@ -186,6 +188,7 @@ class _ClosureBuilder:
         namespace_roots=dict(self.namespace_roots),
         bindings=list(self.bindings.values()),
         guarded_blocks=list(self.guarded_blocks.values()),
+        future_imports=list(self.future_imports.values()),
         flags=self.flags,
         repo_trees=dict(self.repo_trees),
     )
@@ -217,6 +220,8 @@ class _ClosureBuilder:
       dep_names = self._module_free_names(module_ast, resolved.module)
       is_package = resolved.path.rsplit("/", 1)[-1] == "__init__.py"
       for imp in collect_imports(module_ast, resolved.module, is_package):
+        if imp.kind == "from" and imp.module == "__future__":
+          continue
         dep_names.update(imported.bound_name for imported in imp.explicit_names)
     else:
       try:
@@ -272,6 +277,7 @@ class _ClosureBuilder:
   ) -> None:
     symbols = collect_module_symbols(module_ast)
     is_package = resolved.path.rsplit("/", 1)[-1] == "__init__.py"
+    self._collect_future_imports(module_ast)
     import_map, nested = self._build_import_map(module_ast, resolved.module, is_package)
     handled, extra = self._preserve_guards(tree, resolved, module_ast, is_package, dep_names,
                                            symbols)
@@ -329,6 +335,21 @@ class _ClosureBuilder:
     if imp.level:
       return True
     return resolve_import_name(tree, imp, imported.name, current_module=resolved.module) is not None
+
+  def _collect_future_imports(self, module_ast: ast.Module) -> None:
+    """Record every ``from __future__ import ...`` for the emitter.
+
+    Future statements must appear at the very top of the file, before any other
+    statement. They bind no runtime names (so they never surface as free names)
+    and would otherwise be dropped or sorted among the other imports; they are
+    therefore collected separately and always emitted first.
+    """
+    for imp in collect_imports(module_ast, "__main__"):
+      if imp.kind == "from" and imp.module == "__future__":
+        for imported in imp.names:
+          key = (imp.module, imported.name, imported.asname)
+          self.future_imports.setdefault(
+              key, KeptImport("from", imp.module, imported.name, imported.asname))
 
   def _preserve_guards(
       self,
@@ -426,6 +447,10 @@ class _ClosureBuilder:
     mapping: dict[str, tuple[ImportInfo, ImportedName]] = {}
     nested: dict[str, tuple[ImportInfo, ImportedName]] = {}
     for imp in collect_imports(module_ast, module, is_package):
+      if imp.kind == "from" and imp.module == "__future__":
+        # Future statements bind no runtime names and are emitted first by the
+        # emitter (via ``_collect_future_imports``); never hoist them here.
+        continue
       if imp.scope == "nested":
         for imported in imp.explicit_names:
           nested.setdefault(imported.bound_name, (imp, imported))

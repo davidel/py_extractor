@@ -30,6 +30,10 @@ def render_text(result: ClosureResult) -> str:
       path = ".".join((binding.local, *binding.parts))
       lines.append(f"  - {path} -> namespace({', '.join(binding.members)})")
   lines.append("")
+  lines.append(f"Future imports ({len(result.future_imports)}):")
+  for imp in result.future_imports:
+    lines.append(f"  - {_render_import(imp)}")
+  lines.append("")
   lines.append(f"Optional-import blocks preserved ({len(result.guarded_blocks)}):")
   for block in result.guarded_blocks:
     lines.append(f"  - {block.module}:{block.lineno}")
@@ -77,6 +81,11 @@ def render_json(result: ClosureResult) -> str:
           "module": block.module,
           "lineno": block.lineno,
       } for block in result.guarded_blocks],
+      "future_imports": [{
+          "module": imp.module,
+          "name": imp.name,
+          "asname": imp.asname,
+      } for imp in result.future_imports],
       "flags": [{
           "kind": flag.kind.value,
           "detail": flag.detail,

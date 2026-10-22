@@ -32,6 +32,12 @@ def emit(
   lines.extend(_render_header(header, result))
   lines.append("")
 
+  # Future statements must come first, before any other statement in the file.
+  future_lines = _render_imports(result.future_imports)
+  if future_lines:
+    lines.extend(future_lines)
+    lines.append("")
+
   import_lines = _render_imports(result.kept_imports)
   if any(binding.kind == "module" for binding in result.bindings):
     # Namespace objects for module bindings are built with SimpleNamespace.
