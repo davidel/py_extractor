@@ -16,7 +16,7 @@ trust, *without* importing the whole package and dragging in its dependencies.
 3. **Compute the transitive closure.** Free names are found with scope-aware AST
    analysis (locals, loop/comprehension variables, parameters and builtins are
    excluded; decorators, bases, annotations and defaults are included).
-4. **Classify each dependency** (first match wins):
+4. **Handle each dependency** (first match wins):
    - **Standard library** → kept as an `import` (always, automatically).
    - **Curated trusted package** (torch, numpy, transformers, ...) → kept as an `import`.
    - **In-repo module** → recursed into and inlined.
