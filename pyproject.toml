@@ -31,7 +31,9 @@ dev = ["ruff>=0.5", "yapf>=0.40", "pytest>=7", "pytest-cov>=4"]
 py-extractor = "py_extractor.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/example/py_extractor"
+Homepage = "https://github.com/davidel/py_extractor"
+Repository = "https://github.com/davidel/py_extractor"
+Issues = "https://github.com/davidel/py_extractor/issues"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
