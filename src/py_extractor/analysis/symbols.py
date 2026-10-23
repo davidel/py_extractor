@@ -300,45 +300,18 @@ def free_names(node: ast.AST) -> set[str]:
   return free
 
 
-def collect_bound_names(node: ast.AST) -> set[str]:
-  """Return the set of names bound by *node* (module-level convenience)."""
-  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-    return frozenset(_arg_names(node)) | frozenset(_block_bindings(node.body))
-  if isinstance(node, ast.ClassDef):
-    return frozenset(_block_bindings(node.body))
-  return frozenset()
-
-
 def collect_statement_bindings(stmts: list[ast.stmt]) -> set[str]:
   """Return names bound at the immediate scope of *stmts*.
 
-  Unlike :func:`collect_bound_names` this accepts arbitrary statements (e.g. a
-  guarding ``try``/``if`` block) and returns the names they bind in the
-  enclosing (module) scope, without descending into nested scopes.
+  Accepts arbitrary statements (e.g. a guarding ``try``/``if`` block) and
+  returns the names they bind in the enclosing (module) scope, without
+  descending into nested scopes.
   """
   return _block_bindings(stmts)
 
 
-def collect_loaded_names(node: ast.AST) -> set[str]:
-  """Return every non-builtin name loaded within *node* (scopeless)."""
-  loaded = {
-      child.id
-      for child in ast.walk(node)
-      if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)
-  }
-  return {name for name in loaded if not is_builtin_name(name)}
-
-
-def collect_dependency_names(node: ast.AST) -> set[str]:
-  """Return the free names *node* depends on (scope-aware). See :func:`free_names`."""
-  return free_names(node)
-
-
 __all__ = [
     "ModuleSymbols",
-    "collect_bound_names",
-    "collect_dependency_names",
-    "collect_loaded_names",
     "collect_module_symbols",
     "collect_statement_bindings",
     "find_definition",

@@ -13,9 +13,7 @@ class Route(Enum):
 
   STDLIB = "stdlib"  # keep as an import (standard library)
   TRUSTED = "trusted"  # keep as an import (curated allow-list)
-  INTERNAL = "internal"  # in-repo: recurse and inline
-  THIRD_PARTY = "third_party"  # external: inline if resolvable, else flag
-  UNKNOWN = "unknown"  # could not be resolved at all -> flag
+  UNKNOWN = "unknown"  # not stdlib/trusted -> the caller decides in-repo vs external
 
 
 @dataclass(frozen=True)
@@ -24,22 +22,21 @@ class Classification:
 
   root: str
   route: Route
-  reason: str = ""
 
 
 def classify(root: str, policy: TrustPolicy) -> Classification:
   """Classify a dependency *root* module name.
 
-  Precedence: stdlib -> trusted registry -> (caller decides internal vs third
-  party). This function deliberately does not know about the source tree; the
-  closure engine upgrades ``UNKNOWN`` to ``INTERNAL`` when the module exists
-  in-repo.
+  Precedence: stdlib -> trusted registry -> unknown. This function deliberately
+  does not know about the source tree; the closure engine only needs to know
+  whether the import is one to keep (stdlib/trusted) or one it must try to
+  resolve in-repo / externally.
   """
   if is_stdlib(root):
-    return Classification(root, Route.STDLIB, "python standard library")
+    return Classification(root, Route.STDLIB)
   if policy.is_trusted(root):
-    return Classification(root, Route.TRUSTED, "curated trusted package")
-  return Classification(root, Route.UNKNOWN, "not stdlib and not trusted")
+    return Classification(root, Route.TRUSTED)
+  return Classification(root, Route.UNKNOWN)
 
 
 __all__ = ["Classification", "Route", "classify"]

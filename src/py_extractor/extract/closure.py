@@ -35,7 +35,6 @@ class FlagKind(Enum):
   UNRESOLVED_THIRD_PARTY = "unresolved_third_party"
   UNRESOLVED_NAME = "unresolved_name"
   STAR_IMPORT = "star_import"
-  NAMESPACE_OBJECT = "namespace_object"
   COLLISION = "collision"
   GUARDED_IMPORT = "guarded_import"
   NESTED_IMPORT = "nested_import"
@@ -134,17 +133,10 @@ class ClosureResult:
   guarded_blocks: list[GuardedBlock] = field(default_factory=list)
   future_imports: list[KeptImport] = field(default_factory=list)
   flags: list[Flag] = field(default_factory=list)
-  repo_trees: dict[str, SourceTree] = field(default_factory=dict)
 
 
 # A resolver maps an unresolved third-party import root to a (repo_id, tree).
 ThirdPartyResolver = Callable[[str, ExtractOptions], "tuple[str, SourceTree] | None"]
-
-
-@dataclass
-class _Context:
-  repo_id: str
-  tree: SourceTree
 
 
 class _ClosureBuilder:
@@ -169,11 +161,9 @@ class _ClosureBuilder:
     self.guarded_blocks: dict[tuple, GuardedBlock] = {}
     self.future_imports: dict[tuple, KeptImport] = {}
     self.flags: list[Flag] = []
-    self.repo_trees: dict[str, SourceTree] = {root_repo_id: root_tree}
     self._trees: dict[str, SourceTree] = {root_repo_id: root_tree}
-    self._foreign: dict[str, _Context | None] = {}
+    self._foreign: dict[str, tuple[str, SourceTree] | None] = {}
     self._edges: dict[str, set[str]] = {}
-    self._whole_module_paths: set[tuple[str, str]] = set()
     self._collision_names: dict[str, str] = {}
 
   # -- public -------------------------------------------------------------
@@ -190,7 +180,6 @@ class _ClosureBuilder:
         guarded_blocks=list(self.guarded_blocks.values()),
         future_imports=list(self.future_imports.values()),
         flags=self.flags,
-        repo_trees=dict(self.repo_trees),
     )
 
   # -- core walk ----------------------------------------------------------
@@ -216,8 +205,7 @@ class _ClosureBuilder:
       # Whole-module target: inline every top-level definition and honour every
       # import as a dependency (imports don't surface as free names).
       node: ast.AST = module_ast
-      self._whole_module_paths.add((repo_id, resolved.path))
-      dep_names = self._module_free_names(module_ast, resolved.module)
+      dep_names = self._module_free_names(module_ast)
       is_package = resolved.path.rsplit("/", 1)[-1] == "__init__.py"
       for imp in collect_imports(module_ast, resolved.module, is_package):
         if imp.kind == "from" and imp.module == "__future__":
@@ -260,7 +248,7 @@ class _ClosureBuilder:
     self._resolve_dependencies(repo_id, tree, resolved, module_ast, dep_names, key)
     return unit
 
-  def _module_free_names(self, module_ast: ast.Module, module: str) -> set[str]:
+  def _module_free_names(self, module_ast: ast.Module) -> set[str]:
     names: set[str] = set()
     for stmt in module_ast.body:
       names |= free_names(stmt)
@@ -493,7 +481,10 @@ class _ClosureBuilder:
     foreign = self._resolve_foreign(root)
     if foreign is not None:
       foreign_id, foreign_tree = foreign
-      internal_foreign = self._resolve_in_foreign(foreign_id, foreign_tree, imp, imported)
+      internal_foreign = resolve_import_name(foreign_tree,
+                                             imp,
+                                             imported.name,
+                                             current_module=imp.module)
       if internal_foreign is not None:
         self._trees.setdefault(foreign_id, foreign_tree)
         self._process(foreign_id, internal_foreign)
@@ -586,8 +577,7 @@ class _ClosureBuilder:
 
   def _resolve_foreign(self, root: str) -> tuple[str, SourceTree] | None:
     if root in self._foreign:
-      cached = self._foreign[root]
-      return None if cached is None else (cached.repo_id, cached.tree)
+      return self._foreign[root]
     if self.resolver is None:
       self._foreign[root] = None
       return None
@@ -595,23 +585,8 @@ class _ClosureBuilder:
       found = self.resolver(root, self.options)
     except Exception:  # noqa: BLE001 - resolver failures degrade to a flag
       found = None
-    if found is None:
-      self._foreign[root] = None
-      return None
-    repo_id, tree = found
-    context = _Context(repo_id, tree)
-    self._foreign[root] = context
-    self.repo_trees.setdefault(repo_id, tree)
-    return (repo_id, tree)
-
-  def _resolve_in_foreign(
-      self,
-      repo_id: str,
-      tree: SourceTree,
-      imp: ImportInfo,
-      imported: ImportedName,
-  ) -> ResolvedSymbol | None:
-    return resolve_import_name(tree, imp, imported.name, current_module=imp.module)
+    self._foreign[root] = found
+    return found
 
   # -- ordering -----------------------------------------------------------
 

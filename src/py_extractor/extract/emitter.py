@@ -9,11 +9,6 @@ from ..verify import compile_source
 from .closure import Binding, ClosureResult, ExtractedUnit, KeptImport
 
 
-def _module_alias(unit: ExtractedUnit) -> str | None:
-  """Return the alias used to reference a whole-module unit, if any."""
-  return None
-
-
 def emit(
     result: ClosureResult,
     *,
