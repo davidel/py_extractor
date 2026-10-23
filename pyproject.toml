@@ -3,7 +3,7 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "py_extractor"
+name = "py-code-extractor"
 version = "0.1.0"
 description = "Extract a self-contained, single-file copy of a class or function from a remote repository, transitively vendoring only the code it actually needs."
 readme = "README.md"
