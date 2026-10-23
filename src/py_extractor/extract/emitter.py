@@ -7,7 +7,7 @@ import ast
 from ..errors import ExtractionError
 from ..licensing import LicenseInfo
 from ..verify import compile_source
-from .closure import Binding, ClosureResult, ExtractedUnit, KeptImport
+from .closure.models import Binding, ClosureResult, ExtractedUnit, KeptImport
 
 
 def emit(

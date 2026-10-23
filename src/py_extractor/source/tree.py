@@ -17,6 +17,11 @@ from ..errors import SourceError
 from ..licensing import is_license_path
 
 
+def is_package_file(path: str) -> bool:
+  """Return ``True`` if *path* names a package ``__init__.py`` file."""
+  return PurePosixPath(path).name == "__init__.py"
+
+
 @dataclass
 class SourceTree:
   """A repository snapshot: repo-relative POSIX path -> source text.
@@ -185,6 +190,19 @@ class SourceTree:
     paths = sorted(path for score, path in entries if score == best_score)
     return paths[0] if paths else None
 
+  def module_name(self, path: str) -> str:
+    """Return the best dotted module name for *path*, or ``""`` if it has none.
+
+    When several dotted names map to the same file (PEP 420 namespace layouts),
+    the highest-scoring candidate wins; ties break towards the shortest, then
+    lexicographically first name, so the result is deterministic.
+    """
+    candidates = self._candidate_names(path)
+    if not candidates:
+      return ""
+    candidates.sort(key=lambda pair: (-pair[0], len(pair[1]), pair[1]))
+    return candidates[0][1]
+
   def has_module(self, dotted: str) -> bool:
     """Return ``True`` if *dotted* names a module or package in the tree."""
     return dotted in self.module_index()
@@ -219,4 +237,4 @@ def _common_prefix(names) -> str:
   return next(iter(first_components)) + "/"
 
 
-__all__ = ["SourceTree"]
+__all__ = ["SourceTree", "is_package_file"]

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from py_extractor.analysis.resolver import ResolvedSymbol
 from py_extractor.config import ExtractOptions, TrustPolicy
-from py_extractor.extract.closure import FlagKind, compute_closure
+from py_extractor.extract.closure.builder import compute_closure
+from py_extractor.extract.closure.models import FlagKind
 from py_extractor.source.tree import SourceTree
 
 

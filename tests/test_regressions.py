@@ -11,7 +11,8 @@ from py_extractor.analysis.imports import collect_imports
 from py_extractor.analysis.resolver import ResolvedSymbol
 from py_extractor.analysis.symbols import free_names
 from py_extractor.config import ExtractOptions, TrustPolicy
-from py_extractor.extract.closure import FlagKind, compute_closure
+from py_extractor.extract.closure.builder import compute_closure
+from py_extractor.extract.closure.models import FlagKind
 from py_extractor.extract.emitter import emit
 from py_extractor.pypi import PYPI_JSON_URL
 from py_extractor.source.tree import SourceTree

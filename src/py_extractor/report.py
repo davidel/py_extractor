@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from .extract.closure import ClosureResult
+from .extract.closure.models import ClosureResult
 
 
 def render_text(result: ClosureResult) -> str:

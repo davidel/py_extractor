@@ -9,7 +9,7 @@ from py_extractor import make_third_party_resolver
 from py_extractor.analysis.resolver import ResolvedSymbol
 from py_extractor.config import ExtractOptions, TrustPolicy
 from py_extractor.errors import SourceError
-from py_extractor.extract.closure import compute_closure
+from py_extractor.extract.closure.builder import compute_closure
 from py_extractor.pypi import PYPI_JSON_URL
 from py_extractor.report import render_json, render_text
 from py_extractor.source.tree import SourceTree

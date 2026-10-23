@@ -7,7 +7,7 @@ from pathlib import Path
 
 from py_extractor.analysis.resolver import ResolvedSymbol
 from py_extractor.config import ExtractOptions, TrustPolicy
-from py_extractor.extract.closure import compute_closure
+from py_extractor.extract.closure.builder import compute_closure
 from py_extractor.extract.emitter import emit
 from py_extractor.source.tree import SourceTree
 

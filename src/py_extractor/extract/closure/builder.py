@@ -1,4 +1,4 @@
-"""Transitive dependency closure.
+"""The closure walk: transitively resolve a symbol's dependencies.
 
 Starting from a target symbol, walk its free names, pull in sibling module-level
 definitions from the same file, resolve imports into the source tree, and
@@ -10,144 +10,26 @@ the foreign repository).
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from enum import Enum
 
-from ..analysis.imports import GUARD_TYPES, ImportedName, ImportInfo, collect_imports
-from ..analysis.resolver import ResolvedSymbol, resolve_import_name
-from ..analysis.symbols import (
-    ModuleSymbols,
-    collect_module_symbols,
-    collect_statement_bindings,
-    find_definition,
-    free_names,
+from ...analysis.imports import ImportedName, ImportInfo, collect_imports
+from ...analysis.resolver import ResolvedSymbol, resolve_import_name
+from ...analysis.symbols import collect_module_symbols, find_definition, free_names
+from ...config import ExtractOptions
+from ...errors import ResolutionError, SymbolNotFoundError
+from ...licensing import LicenseInfo, detect_license
+from ...source.tree import SourceTree, is_package_file
+from .guards import preserve_guards
+from .hoisting import build_import_maps, collect_future_imports, needs_flattening
+from .models import (
+    Binding,
+    ClosureResult,
+    ExtractedUnit,
+    Flag,
+    FlagKind,
+    GuardedBlock,
+    KeptImport,
+    ThirdPartyResolver,
 )
-from ..config import ExtractOptions
-from ..errors import ResolutionError, SymbolNotFoundError
-from ..licensing import LicenseInfo, detect_license
-from ..source.tree import SourceTree
-
-
-class FlagKind(Enum):
-  """Categories of things that could not be cleanly vendored."""
-
-  UNRESOLVED_THIRD_PARTY = "unresolved_third_party"
-  UNRESOLVED_NAME = "unresolved_name"
-  STAR_IMPORT = "star_import"
-  COLLISION = "collision"
-  GUARDED_IMPORT = "guarded_import"
-  NESTED_IMPORT = "nested_import"
-
-
-@dataclass
-class Flag:
-  """A single unresolved / risky item, surfaced in the report."""
-
-  kind: FlagKind
-  detail: str
-  location: str = ""
-
-
-@dataclass
-class ExtractedUnit:
-  """One inlined definition (or whole module) destined for the output."""
-
-  key: str
-  repo_id: str
-  path: str
-  module: str
-  symbol: str | None
-  node: ast.AST
-  source: str
-
-
-@dataclass(frozen=True)
-class KeptImport:
-  """An import that is kept as-is (stdlib or trusted)."""
-
-  kind: str
-  module: str
-  name: str
-  asname: str | None = None
-
-  def render(self) -> str:
-    """Return the ``import ...`` / ``from ... import ...`` source line."""
-    if self.kind == "import":
-      if self.asname and self.asname != self.module.split(".")[0]:
-        return f"import {self.module} as {self.asname}"
-      return f"import {self.module}"
-    if self.asname:
-      return f"from {self.module} import {self.name} as {self.asname}"
-    return f"from {self.module} import {self.name}"
-
-
-@dataclass(frozen=True)
-class Binding:
-  """A local name the extracted code needs, bound to inlined definitions.
-
-  Importing a name into a file and then inlining the *definition* leaves the
-  call site dangling (``from .core import Widget as W`` -> ``W()`` fails with
-  ``NameError`` once ``Widget`` is flattened). A binding re-creates the missing
-  local name so the flattened code still resolves.
-
-  Attributes:
-    kind: ``"alias"`` (``W = Widget``) or ``"module"`` (a namespace object
-      exposing a module's inlined members).
-    local: The name used at the call site (``W``, ``core``, ``pkg``).
-    target: For ``"alias"``, the inlined top-level name to alias.
-    unit_key: The unit this binding must be emitted after (the definition it
-      depends on), so ordering matches dependency order.
-    parts: For ``"module"``, the dotted path under *local* (``("core",)`` for
-      ``import pkg.core``); empty when *local* names the module directly.
-    members: For ``"module"``, the inlined top-level names to expose.
-  """
-
-  kind: str
-  local: str
-  target: str | None = None
-  unit_key: str | None = None
-  parts: tuple[str, ...] = ()
-  members: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class GuardedBlock:
-  """A verbatim module-level statement preserved to keep an optional import.
-
-  Hoisting ``import ujson as json`` out of a ``try: ... except ImportError:``
-  block turns an *optional* dependency into a hard one (or, when the fallback
-  binds the same name, silently drops it). Instead the whole guarding statement
-  is copied verbatim so the original fallback logic is preserved.
-
-  Attributes:
-    source: The unparsed source of the guarding statement.
-    module: The dotted module the block came from (for provenance).
-    lineno: Line number in the origin file.
-  """
-
-  source: str
-  module: str
-  lineno: int
-
-
-@dataclass
-class ClosureResult:
-  """The full result of the closure computation."""
-
-  target: ExtractedUnit
-  units: list[ExtractedUnit]
-  kept_imports: list[KeptImport]
-  bindings: list[Binding] = field(default_factory=list)
-  guarded_blocks: list[GuardedBlock] = field(default_factory=list)
-  future_imports: list[KeptImport] = field(default_factory=list)
-  flags: list[Flag] = field(default_factory=list)
-  licenses: list[LicenseInfo] = field(default_factory=list)
-  license_ids: dict[str, str] = field(default_factory=dict)
-
-
-# A resolver maps an unresolved third-party import root to a (repo_id, tree).
-ThirdPartyResolver = Callable[[str, ExtractOptions], "tuple[str, SourceTree] | None"]
 
 
 class _ClosureBuilder:
@@ -212,7 +94,8 @@ class _ClosureBuilder:
       tree = self._trees.get(repo_id)
       if tree is None:
         continue
-      license_ids[repo_id] = f"L{len(licenses) + 1}"
+      license_id = f"L{len(licenses) + 1}"
+      license_ids[repo_id] = license_id
       licenses.append(detect_license(tree, repo_id))
     return licenses, license_ids
 
@@ -240,7 +123,7 @@ class _ClosureBuilder:
       # import as a dependency (imports don't surface as free names).
       node: ast.AST = module_ast
       dep_names = self._module_free_names(module_ast)
-      is_package = resolved.path.rsplit("/", 1)[-1] == "__init__.py"
+      is_package = is_package_file(resolved.path)
       for imp in collect_imports(module_ast, resolved.module, is_package):
         if imp.kind == "from" and imp.module == "__future__":
           continue
@@ -266,7 +149,6 @@ class _ClosureBuilder:
     self.order.append(key)
     self._edges.setdefault(key, set())
 
-    # Collision check for a whole-inlined top-level symbol name.
     if resolved.symbol is not None:
       clash = self._collision_names.get(resolved.symbol)
       if clash is not None and clash != key:
@@ -298,42 +180,40 @@ class _ClosureBuilder:
       key: str,
   ) -> None:
     symbols = collect_module_symbols(module_ast)
-    is_package = resolved.path.rsplit("/", 1)[-1] == "__init__.py"
-    self._collect_future_imports(module_ast)
-    import_map, nested = self._build_import_map(module_ast, resolved.module, is_package)
-    handled, extra = self._preserve_guards(tree, resolved, module_ast, is_package, dep_names,
-                                           symbols)
-    dep_names |= extra
+    is_package = is_package_file(resolved.path)
+    self.future_imports.update(collect_future_imports(module_ast))
+    import_map, nested, import_flags = build_import_maps(module_ast, resolved.module, is_package)
+    self.flags.extend(import_flags)
+    preserved = preserve_guards(tree, resolved, module_ast, is_package, dep_names, symbols)
+    self.guarded_blocks.update(preserved.blocks)
+    self.flags.extend(preserved.flags)
+    handled = preserved.handled
+    dep_names |= preserved.extra
 
     for name in sorted(dep_names):
       # 0) A name bound by a preserved optional-import block: already handled.
       if name in handled:
         continue
 
-      # 1) A module-level definition in the same file -> inline it too.
+      # 1) Sibling top-level definition in the same file: inline it.
       if symbols.has(name):
-        if name == resolved.symbol:
-          # A self-reference (e.g. ``super(C, self)``): already inlined, no edge.
-          continue
-        sibling = ResolvedSymbol(resolved.path, resolved.module, name, is_package)
-        self._process(repo_id, sibling)
-        self._edges[key].add(self._key(repo_id, sibling))
+        target = ResolvedSymbol(resolved.path, resolved.module, name, is_package)
+        child_key = self._key(repo_id, target)
+        self._process(repo_id, target)
+        self._edges[key].add(child_key)
         continue
 
-      # 2) A name bound by a module-level import statement.
+      # 2) Imported name: keep (stdlib/trusted) or resolve/inline.
       entry = import_map.get(name)
       if entry is not None:
         imp, imported = entry
         self._handle_import(repo_id, tree, resolved, imp, imported, key)
         continue
 
-      # 3) A name bound by a function/class-local import: it stays with the
-      #    copied definition body. A local import of an in-repo/relative module
-      #    cannot be flattened there, so warn that it will not resolve.
       nested_entry = nested.get(name)
       if nested_entry is not None:
         imp, imported = nested_entry
-        if self._needs_flattening(tree, resolved, imp, imported):
+        if needs_flattening(tree, resolved, imp, imported):
           self.flags.append(
               Flag(
                   FlagKind.NESTED_IMPORT,
@@ -343,147 +223,13 @@ class _ClosureBuilder:
               ))
         continue
 
-      # 4) Dangling name: not a sibling, not imported, not builtin.
+      # 3) Dangling name: not a sibling, not imported, not builtin.
       self.flags.append(
           Flag(
               FlagKind.UNRESOLVED_NAME,
               f"name {name!r} is neither defined nor imported",
               f"{resolved.module}:{resolved.symbol or '<module>'}",
           ))
-
-  def _needs_flattening(self, tree: SourceTree, resolved: ResolvedSymbol, imp: ImportInfo,
-                        imported: ImportedName) -> bool:
-    """Whether *imp* points at an in-repo (or relative) module to be inlined."""
-    if imp.level:
-      return True
-    return resolve_import_name(tree, imp, imported.name, current_module=resolved.module) is not None
-
-  def _collect_future_imports(self, module_ast: ast.Module) -> None:
-    """Record every ``from __future__ import ...`` for the emitter.
-
-    Future statements must appear at the very top of the file, before any other
-    statement. They bind no runtime names (so they never surface as free names)
-    and would otherwise be dropped or sorted among the other imports; they are
-    therefore collected separately and always emitted first.
-    """
-    for imp in collect_imports(module_ast, "__main__"):
-      if imp.kind == "from" and imp.module == "__future__":
-        for imported in imp.names:
-          key = (imp.module, imported.name, imported.asname)
-          self.future_imports.setdefault(
-              key, KeptImport("from", imp.module, imported.name, imported.asname))
-
-  def _preserve_guards(
-      self,
-      tree: SourceTree,
-      resolved: ResolvedSymbol,
-      module_ast: ast.Module,
-      is_package: bool,
-      dep_names: set[str],
-      symbols: ModuleSymbols,
-  ) -> tuple[set[str], set[str]]:
-    """Copy optional-import blocks verbatim; return names handled and needed.
-
-    Hoisting a guarded import (``try: import x`` / ``if cond: import x``) out of
-    its guard would turn an optional dependency into a hard one, or silently
-    drop a fallback branch. When every import inside a top-level guarding
-    statement can be kept as-is (absolute and not in-repo), the whole statement
-    is copied verbatim; the names it binds are reported so they are neither
-    hoisted nor flagged.
-
-    Returns:
-      A pair ``(handled, extra)``: the names bound by preserved blocks (skip
-      them in the dependency loop) and the additional free names those blocks
-      rely on (e.g. ``sys`` in ``if sys.version_info:``), which must still be
-      resolved and hoisted.
-    """
-    handled: set[str] = set()
-    extra: set[str] = set()
-    text = tree.get(resolved.path) or ""
-    for stmt in module_ast.body:
-      if not isinstance(stmt, GUARD_TYPES):
-        continue
-      imports = collect_imports(stmt, resolved.module, is_package)
-      if not imports:
-        continue
-      bound = collect_statement_bindings([stmt])
-      if not bound & dep_names:
-        # The block binds nothing the extracted code needs: skip it entirely.
-        continue
-      if not self._guard_is_preservable(tree, resolved, stmt, imports, symbols):
-        # The guard cannot be copied as-is (it imports an in-repo/relative
-        # module, or its condition needs a sibling definition that is inlined
-        # *after* the block). The import is resolved normally, but the
-        # optional-import idiom is lost, so record it for the report.
-        self.flags.append(
-            Flag(
-                FlagKind.GUARDED_IMPORT,
-                "optional-import guard could not be preserved (its import must be "
-                "flattened); the dependency is now unconditional",
-                f"{resolved.module}:{stmt.lineno}",
-            ))
-        continue
-      source = ast.get_source_segment(text, stmt)
-      if source is None:  # pragma: no cover - only if locations are missing
-        continue
-      key = (resolved.module, stmt.lineno)
-      self.guarded_blocks.setdefault(key, GuardedBlock(source, resolved.module, stmt.lineno))
-      handled |= bound
-      extra |= free_names(stmt)
-    return handled, extra - handled
-
-  def _guard_is_preservable(self, tree: SourceTree, resolved: ResolvedSymbol, stmt: ast.stmt,
-                            imports: list[ImportInfo], symbols: ModuleSymbols) -> bool:
-    """Whether a guarding statement can be copied verbatim into the output.
-
-    Two cases block preservation, both of which force the caller to fall back to
-    resolving the import normally (and flagging it):
-
-    * The guard imports a relative or in-repo module, which must be flattened
-      rather than kept.
-    * The guard's own condition (or other non-import statements) reference a
-      module-level definition from the same file. That definition is inlined
-      *after* the guarded block, so emitting the block verbatim would raise
-      ``NameError``.
-    """
-    for imp in imports:
-      if imp.level:
-        return False
-      for imported in imp.explicit_names:
-        if resolve_import_name(tree, imp, imported.name,
-                               current_module=resolved.module) is not None:
-          return False
-    return all(not symbols.has(name) for name in free_names(stmt))
-
-  def _build_import_map(
-      self, module_ast: ast.Module, module: str, is_package: bool
-  ) -> tuple[dict[str, tuple[ImportInfo, ImportedName]], dict[str, tuple[ImportInfo,
-                                                                         ImportedName]]]:
-    """Split imports into hoistable (module-scope) and local (nested) maps.
-
-    Only *module-scope* imports are hoisted; imports inside a function or class
-    body are bound in that local scope and are copied verbatim with the
-    definition that contains them, so they are returned separately (as
-    ``nested``) rather than added to the hoisting map.
-    """
-    mapping: dict[str, tuple[ImportInfo, ImportedName]] = {}
-    nested: dict[str, tuple[ImportInfo, ImportedName]] = {}
-    for imp in collect_imports(module_ast, module, is_package):
-      if imp.kind == "from" and imp.module == "__future__":
-        # Future statements bind no runtime names and are emitted first by the
-        # emitter (via ``_collect_future_imports``); never hoist them here.
-        continue
-      if imp.scope == "nested":
-        for imported in imp.explicit_names:
-          nested.setdefault(imported.bound_name, (imp, imported))
-        continue
-      for imported in imp.explicit_names:
-        mapping.setdefault(imported.bound_name, (imp, imported))
-      if imp.is_star:
-        self.flags.append(
-            Flag(FlagKind.STAR_IMPORT, f"'from {imp.module} import *' cannot be expanded",
-                 f"{module}:{imp.lineno}"))
-    return mapping, nested
 
   # -- import handling ----------------------------------------------------
 
@@ -667,14 +413,4 @@ def compute_closure(
   return builder.build(target, repo_id)
 
 
-__all__ = [
-    "Binding",
-    "ClosureResult",
-    "ExtractedUnit",
-    "Flag",
-    "FlagKind",
-    "GuardedBlock",
-    "KeptImport",
-    "ThirdPartyResolver",
-    "compute_closure",
-]
+__all__ = ["compute_closure"]

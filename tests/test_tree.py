@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import tarfile
 
-from py_extractor.source.tree import SourceTree
+from py_extractor.source.tree import SourceTree, is_package_file
 
 
 def _make_tarball(files: dict[str, str], top: str = "repo-abc123") -> bytes:
@@ -75,6 +75,25 @@ def test_missing_module_returns_none() -> None:
   tree = SourceTree.from_mapping({"pkg/__init__.py": ""})
   assert tree.resolve_module("pkg.does_not_exist") is None
   assert not tree.has_module("pkg.does_not_exist")
+
+
+def test_module_name_returns_best_dotted_name() -> None:
+  tree = SourceTree.from_mapping({"a/__init__.py": "", "a/b/__init__.py": "", "a/b/c.py": ""})
+  # The fully-qualified package chain wins over the bare ``b.c`` namespace name.
+  assert tree.module_name("a/b/c.py") == "a.b.c"
+
+
+def test_module_name_empty_path_is_empty() -> None:
+  tree = SourceTree.from_mapping({"pkg/mod.py": ""})
+  # A path with no components yields no candidate names.
+  assert tree.module_name("") == ""
+
+
+def test_is_package_file() -> None:
+  assert is_package_file("pkg/__init__.py")
+  assert is_package_file("__init__.py")
+  assert not is_package_file("pkg/mod.py")
+  assert not is_package_file("pkg/__init__.pyi")
 
 
 def test_from_tarball_strips_top_level() -> None:

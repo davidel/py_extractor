@@ -6,9 +6,9 @@ from ..config import ExtractOptions
 from ..errors import RepoNotFoundError
 from .fetcher import Fetcher
 from .repo import RepoRef, parse_repo
-from .tree import SourceTree
+from .tree import SourceTree, is_package_file
 
-__all__ = ["Fetcher", "RepoRef", "SourceTree", "load_tree", "parse_repo"]
+__all__ = ["Fetcher", "RepoRef", "SourceTree", "is_package_file", "load_tree", "parse_repo"]
 
 
 def load_tree(repo: RepoRef, options: ExtractOptions | None = None) -> SourceTree:

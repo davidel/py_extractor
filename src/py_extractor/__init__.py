@@ -11,14 +11,15 @@ from .analysis.resolver import ResolvedSymbol
 from .analysis.symbols import find_definition
 from .config import ExtractOptions, TrustPolicy
 from .errors import AmbiguousSymbolError, SourceError, SymbolNotFoundError
-from .extract.closure import ClosureResult, ThirdPartyResolver, compute_closure
+from .extract.closure.builder import compute_closure
+from .extract.closure.models import ClosureResult, ThirdPartyResolver
 from .extract.emitter import emit
 from .licensing import LicenseInfo, pypi_license
 from .pypi import extract_github_repo, fetch_pypi_json, guess_distribution_names
 from .source import load_tree, parse_repo
 from .source.fetcher import Fetcher
 from .source.repo import RepoRef
-from .source.tree import SourceTree
+from .source.tree import SourceTree, is_package_file
 from .verify import VerifyResult, compile_file, compile_source, import_symbol
 
 __version__ = "0.1.0"
@@ -42,19 +43,6 @@ class ExtractionResult:
   def licenses(self) -> list[LicenseInfo]:
     """License attribution for every contributing repository."""
     return self.closure.licenses
-
-
-def _module_of(tree: SourceTree, path: str) -> str:
-  """Return the best dotted module name for *path* within *tree*."""
-  candidates = tree._candidate_names(path)
-  if not candidates:
-    return ""
-  candidates.sort(key=lambda pair: (-pair[0], len(pair[1]), pair[1]))
-  return candidates[0][1]
-
-
-def _is_package_file(path: str) -> bool:
-  return path.rsplit("/", 1)[-1] == "__init__.py"
 
 
 def locate_symbol(
@@ -93,7 +81,7 @@ def locate_symbol(
       find_definition(ast.parse(text), symbol)  # raises if missing
     except SyntaxError as exc:
       raise SymbolNotFoundError(f"{file_hint!r} is not valid Python: {exc}") from exc
-    return ResolvedSymbol(path, _module_of(tree, path), symbol, _is_package_file(path))
+    return ResolvedSymbol(path, tree.module_name(path), symbol, is_package_file(path))
 
   matches: list[ResolvedSymbol] = []
   for path in tree.paths():
@@ -104,7 +92,7 @@ def locate_symbol(
       continue
     for node in parsed.body:
       if getattr(node, "name", None) == head:
-        matches.append(ResolvedSymbol(path, _module_of(tree, path), symbol, _is_package_file(path)))
+        matches.append(ResolvedSymbol(path, tree.module_name(path), symbol, is_package_file(path)))
         break
   if not matches:
     hint = "" if "." in symbol else (

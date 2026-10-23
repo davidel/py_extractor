@@ -11,7 +11,7 @@ import ast
 from dataclasses import dataclass
 
 from ..errors import ResolutionError
-from ..source.tree import SourceTree
+from ..source.tree import SourceTree, is_package_file
 from .imports import ImportInfo, collect_imports
 from .symbols import collect_module_symbols
 
@@ -33,19 +33,6 @@ class ResolvedSymbol:
   module: str
   symbol: str | None
   is_package: bool
-
-
-def _module_of_path(tree: SourceTree, path: str) -> str:
-  """Return the best dotted module name for *path*, or ``""``."""
-  candidates = tree._candidate_names(path)
-  if not candidates:
-    return ""
-  candidates.sort(key=lambda pair: (-pair[0], len(pair[1]), pair[1]))
-  return candidates[0][1]
-
-
-def _is_package_file(path: str) -> bool:
-  return path.rsplit("/", 1)[-1] == "__init__.py"
 
 
 def resolve_import_name(
@@ -80,7 +67,7 @@ def resolve_import_name(
     if tree.has_module(target):
       path = tree.resolve_module(target)
       if path:
-        return ResolvedSymbol(path, target, None, _is_package_file(path))
+        return ResolvedSymbol(path, target, None, is_package_file(path))
     return None
 
   base_module = import_info.module
@@ -89,7 +76,7 @@ def resolve_import_name(
   if tree.has_module(submodule):
     path = tree.resolve_module(submodule)
     if path:
-      return ResolvedSymbol(path, submodule, None, _is_package_file(path))
+      return ResolvedSymbol(path, submodule, None, is_package_file(path))
 
   # 2) Resolve the base module file and look for the symbol there.
   if not base_module or not tree.has_module(base_module):
@@ -129,12 +116,12 @@ def _resolve_symbol_in_file(
 
   symbols = collect_module_symbols(parsed)
   if symbols.has(name):
-    return ResolvedSymbol(path, module, name, _is_package_file(path))
+    return ResolvedSymbol(path, module, name, is_package_file(path))
 
   # Not defined here: maybe re-exported via ``from .x import name`` / ``import x as name``.
   if depth >= _MAX_REEXPORT_DEPTH:
     raise ResolutionError(f"Re-export chain too deep for {name!r} in {path}")
-  for imp in collect_imports(parsed, module, _is_package_file(path)):
+  for imp in collect_imports(parsed, module, is_package_file(path)):
     for imported in imp.explicit_names:
       if imported.bound_name != name:
         continue
@@ -143,14 +130,14 @@ def _resolve_symbol_in_file(
       if submodule and tree.has_module(submodule):
         sub_path = tree.resolve_module(submodule)
         if sub_path and f"{sub_path}:None" not in seen:
-          return ResolvedSymbol(sub_path, submodule, None, _is_package_file(sub_path))
+          return ResolvedSymbol(sub_path, submodule, None, is_package_file(sub_path))
       nested = resolve_import_name(tree, imp, imported.name, current_module=module, _seen=seen)
       if nested is not None and nested.path != path:
         key = f"{nested.path}:{nested.symbol}"
         if key in seen:
           continue
         return ResolvedSymbol(nested.path, nested.module, nested.symbol,
-                              _is_package_file(nested.path))
+                              is_package_file(nested.path))
   return None
 
 
