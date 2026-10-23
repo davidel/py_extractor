@@ -78,6 +78,9 @@ MAMBA_FILE = "mamba_ssm/modules/mamba_simple.py"
 MMENGINE_REPO = "github:open-mmlab/mmengine"  # star + nested/guarded imports
 MMENGINE_FILE = "mmengine/model/base_model/base_model.py"
 
+HAT_REPO = "github:xpixelgroup/hat"  # registry-decorated target class
+HAT_FILE = "hat/archs/hat_arch.py"
+
 
 def _options(tmp_path) -> ExtractOptions:
   return ExtractOptions(cache_dir=tmp_path / "cache",
@@ -386,3 +389,22 @@ def test_star_import_repository_still_compiles(tmp_path) -> None:
   # Risky constructs must be surfaced as flags rather than silently dropped.
   kinds = {f.kind.name for f in result.closure.flags}
   assert "STAR_IMPORT" in kinds
+
+
+def test_decorated_class_keeps_registration_decorator(tmp_path) -> None:
+  """A registry-decorated target keeps its decorator and flags untrusted deps."""
+  result = extract_symbol(
+      HAT_REPO,
+      "HAT",
+      file_hint=HAT_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class HAT" in result.source
+  # The registration decorator must survive the verbatim slice of the class.
+  assert "@ARCH_REGISTRY.register()" in result.source
+  # Untrusted third-party deps (basicsr/einops) are flagged, not silently dropped.
+  kinds = {f.kind.name for f in result.closure.flags}
+  assert "UNRESOLVED_THIRD_PARTY" in kinds
