@@ -38,6 +38,14 @@ def render_text(result: ClosureResult) -> str:
   for block in result.guarded_blocks:
     lines.append(f"  - {block.module}:{block.lineno}")
   lines.append("")
+  lines.append(f"Licenses ({len(result.licenses)}):")
+  for license_info in result.licenses:
+    label = result.license_ids.get(license_info.repo_id, "")
+    spdx = f" (SPDX: {license_info.spdx})" if license_info.spdx else ""
+    origin = f"  [{license_info.origin}]" if license_info.origin else ""
+    lines.append(f"  - [{label}] {license_info.name}{spdx}  "
+                 f"({license_info.repo_id}){origin}")
+  lines.append("")
   if result.flags:
     lines.append(f"Warnings ({len(result.flags)}):")
     for flag in result.flags:
@@ -89,6 +97,15 @@ def render_json(result: ClosureResult) -> str:
           "detail": flag.detail,
           "location": flag.location,
       } for flag in result.flags],
+      "licenses": [{
+          "id": result.license_ids.get(license_info.repo_id, ""),
+          "repo": license_info.repo_id,
+          "name": license_info.name,
+          "spdx": license_info.spdx,
+          "origin": license_info.origin,
+          "path": license_info.path,
+          "copyright": license_info.copyright,
+      } for license_info in result.licenses],
   }
   return json.dumps(payload, indent=2, sort_keys=True)
 

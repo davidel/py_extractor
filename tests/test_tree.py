@@ -92,6 +92,25 @@ def test_from_tarball_only_python_files() -> None:
   assert not tree.exists("setup.cfg")
 
 
+def test_from_tarball_captures_license_files() -> None:
+  body = _make_tarball({
+      "pkg/mod.py": "x = 1\n",
+      "LICENSE": "MIT License\n",
+      "docs/COPYING": "Apache License\n",
+      "README.md": "# hi",
+  })
+  tree = SourceTree.from_tarball(body)
+  assert tree.license_files == {"LICENSE": "MIT License\n", "docs/COPYING": "Apache License\n"}
+  # License files must not leak into the module index.
+  assert tree.paths() == ["pkg/mod.py"]
+
+
+def test_from_mapping_captures_license_files() -> None:
+  tree = SourceTree.from_mapping({"LICENSE": "MIT License\n", "pkg/mod.py": "x = 1\n"})
+  assert tree.license_files == {"LICENSE": "MIT License\n"}
+  assert tree.paths() == ["pkg/mod.py"]
+
+
 def test_paths_sorted() -> None:
   tree = SourceTree.from_mapping({"b.py": "", "a.py": "", "c/d.py": ""})
   assert tree.paths() == ["a.py", "b.py", "c/d.py"]

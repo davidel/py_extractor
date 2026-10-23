@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 
 from ..errors import ExtractionError
+from ..licensing import LicenseInfo
 from ..verify import compile_source
 from .closure import Binding, ClosureResult, ExtractedUnit, KeptImport
 
@@ -14,11 +15,23 @@ def emit(
     *,
     header: str | None = None,
     include_report: bool = True,
+    license_notice: bool = True,
+    license_full_text: bool = False,
 ) -> str:
   """Render a :class:`ClosureResult` into a single Python source string.
 
-  The output consists of a header comment, the collected kept imports, the
-  inlined definitions (dependency-ordered) and an optional resolution report.
+  The output consists of a header comment, an attribution table (one entry per
+  contributing repository), the collected kept imports, the inlined definitions
+  (dependency-ordered) and an optional resolution report.
+
+  Args:
+    result: The closure result to render.
+    header: Optional free-text header line(s).
+    include_report: Whether to append the resolution report.
+    license_notice: Whether to emit the license attribution table (on by
+      default; pass ``False`` for byte-identical output to older versions).
+    license_full_text: When ``True``, embed the full text of each license file
+      as comments below its table entry.
 
   Raises:
     ExtractionError: If the assembled source is not valid Python.
@@ -26,6 +39,10 @@ def emit(
   lines: list[str] = []
   lines.extend(_render_header(header, result))
   lines.append("")
+
+  if license_notice and result.licenses:
+    lines.extend(_render_licenses(result, full_text=license_full_text))
+    lines.append("")
 
   # Future statements must come first, before any other statement in the file.
   future_lines = _render_imports(result.future_imports)
@@ -45,7 +62,7 @@ def emit(
     lines.extend(block)
 
   for unit in result.units:
-    lines.extend(_render_unit(unit))
+    lines.extend(_render_unit(unit, result.license_ids if license_notice else {}))
     for binding in _bindings_for_unit(result, unit):
       lines.extend(_render_binding(binding))
 
@@ -75,6 +92,43 @@ def _render_header(header: str | None, result: ClosureResult) -> list[str]:
   return out
 
 
+def _render_licenses(result: ClosureResult, *, full_text: bool) -> list[str]:
+  """Render the consolidated license attribution table.
+
+  Each contributing repository gets a stable ``[L#]`` id that the inlined
+  definitions reference, so a license notice is stated once rather than
+  repeated above every borrowed definition.
+  """
+  lines = ["# " + "=" * 68, "# LICENSES", "# " + "=" * 68]
+  for license_info in result.licenses:
+    lines.extend(_render_license_entry(license_info, result.license_ids, full_text=full_text))
+  lines.append("# " + "=" * 68)
+  return lines
+
+
+def _render_license_entry(license_info: LicenseInfo, license_ids: dict[str, str], *,
+                          full_text: bool) -> list[str]:
+  """Render one ``[L#]`` license entry as comment lines."""
+  label = license_ids.get(license_info.repo_id, "")
+  header = f"# [{label}] {license_info.name}"
+  if license_info.spdx:
+    header += f" (SPDX: {license_info.spdx})"
+  lines = [header, f"#      repo: {license_info.repo_id}"]
+  if license_info.origin and license_info.origin != "unknown":
+    detail = f"#      source: {license_info.origin}"
+    if license_info.path:
+      detail += f" ({license_info.path})"
+    lines.append(detail)
+  if license_info.copyright:
+    lines.append(f"#      {license_info.copyright}")
+  if full_text and license_info.text:
+    lines.append("#")
+    lines.append("#      ---- license text ----")
+    for line in license_info.text.splitlines():
+      lines.append(f"#      {line}" if line.strip() else "#")
+  return lines
+
+
 def _render_imports(imports: list[KeptImport]) -> list[str]:
   seen: set[str] = set()
   rendered: list[str] = []
@@ -86,18 +140,19 @@ def _render_imports(imports: list[KeptImport]) -> list[str]:
   return rendered
 
 
-def _render_unit(unit: ExtractedUnit) -> list[str]:
+def _render_unit(unit: ExtractedUnit, license_ids: dict[str, str]) -> list[str]:
+  ref = f"  [{license_ids[unit.repo_id]}]" if unit.repo_id in license_ids else ""
   if unit.symbol is None:
     # Whole-module inline: emit only the top-level definitions/assignments.
     # Import statements are hoisted to the shared header by the closure, so
     # re-emitting them here would duplicate imports and break on dependencies
     # that were rewritten or de-duplicated.
-    marker = f"# --- inlined module {unit.module} ({unit.repo_id}:{unit.path}) ---"
+    marker = f"# --- inlined module {unit.module} ({unit.repo_id}:{unit.path}) ---{ref}"
     body = _module_definition_source(unit.node, unit.source)
     if not body.strip():
       return []
     return [marker, body, ""]
-  marker = f"# --- {unit.module}:{unit.symbol}  (from {unit.repo_id}:{unit.path}) ---"
+  marker = f"# --- {unit.module}:{unit.symbol}  (from {unit.repo_id}:{unit.path}) ---{ref}"
   code = _verbatim_source(unit.source, unit.node)
   if code is None:
     code = ast.unparse(unit.node)

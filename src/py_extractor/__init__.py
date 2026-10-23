@@ -13,6 +13,7 @@ from .config import ExtractOptions, TrustPolicy
 from .errors import AmbiguousSymbolError, SourceError, SymbolNotFoundError
 from .extract.closure import ClosureResult, ThirdPartyResolver, compute_closure
 from .extract.emitter import emit
+from .licensing import LicenseInfo, pypi_license
 from .pypi import extract_github_repo, fetch_pypi_json, guess_distribution_names
 from .source import load_tree, parse_repo
 from .source.fetcher import Fetcher
@@ -36,6 +37,11 @@ class ExtractionResult:
   source: str
   closure: ClosureResult
   target: ResolvedSymbol
+
+  @property
+  def licenses(self) -> list[LicenseInfo]:
+    """License attribution for every contributing repository."""
+    return self.closure.licenses
 
 
 def _module_of(tree: SourceTree, path: str) -> str:
@@ -162,10 +168,21 @@ def make_third_party_resolver(fetcher: Fetcher) -> ThirdPartyResolver:
       except Exception:  # noqa: BLE001 - any failure degrades to "unresolved"
         continue
       if tree.has_module(root):
+        _attach_pypi_license(tree, payload.get("info", {}))
         return repo_ref.slug, tree
     return None
 
   return resolver
+
+
+def _attach_pypi_license(tree: SourceTree, info: dict) -> None:
+  """Attach a PyPI-declared license, unless a better hint is already present."""
+  if tree.license_hint:
+    return
+  hint, origin = pypi_license(info)
+  if hint:
+    tree.license_hint = hint
+    tree.license_hint_origin = origin
 
 
 def extract_symbol(
@@ -184,6 +201,8 @@ def extract_symbol(
     allow_third_party: bool = True,
     cache_dir: str | Path = ".py_extractor_cache",
     fetch_third_party: bool = True,
+    license_notice: bool = True,
+    license_full_text: bool = False,
 ) -> ExtractionResult:
   """Extract *symbol* from *repo* into a single-file source string.
 
@@ -204,6 +223,9 @@ def extract_symbol(
     allow_third_party: Whether to attempt inlining third-party code.
     cache_dir: Cache directory for downloads.
     fetch_third_party: Whether to attempt PyPI->GitHub resolution at all.
+    license_notice: Emit a consolidated license attribution table (on by
+      default; licensing is a legal requirement for flattened code).
+    license_full_text: Embed the full text of each license file as comments.
 
   Returns:
     An :class:`ExtractionResult`.
@@ -235,7 +257,12 @@ def extract_symbol(
       repo_id=repo_ref.slug,
       third_party_resolver=resolver,
   )
-  return ExtractionResult(source=emit(closure), closure=closure, target=target)
+  source = emit(
+      closure,
+      license_notice=license_notice,
+      license_full_text=license_full_text,
+  )
+  return ExtractionResult(source=source, closure=closure, target=target)
 
 
 __all__ = [

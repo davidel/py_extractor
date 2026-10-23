@@ -51,15 +51,25 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Ignore the built-in curated registry (stdlib still trusted).")
 
   behavior = parser.add_argument_group("behavior")
-  behavior.add_argument("--no-third-party",
-                        action="store_true",
-                        help="Never attempt to inline third-party code.")
+  behavior.add_argument("--third-party",
+                        action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="Inline third-party code when resolvable (default: on; "
+                        "use --no-third-party to disable).")
   behavior.add_argument("--offline", action="store_true", help="Disallow all network access.")
   behavior.add_argument("--cache-dir", default=".py_extractor_cache", help="Download cache dir.")
   behavior.add_argument("--report",
                         choices=["text", "json", "none"],
                         default="text",
                         help="Emit a resolution report to stderr. Default: text.")
+  behavior.add_argument("--license-notice",
+                        action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="Emit the license attribution table (default: on; use "
+                        "--no-license-notice to omit it).")
+  behavior.add_argument("--license-full-text",
+                        action="store_true",
+                        help="Embed the full text of each license file as comments.")
   behavior.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity.")
   behavior.add_argument("-y",
                         "--yes",
@@ -128,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
   )
   options = ExtractOptions(
       trust=policy,
-      allow_third_party=not args.no_third_party,
+      allow_third_party=args.third_party,
       cache_dir=Path(args.cache_dir),
       offline=args.offline,
       verbosity=args.verbose,
@@ -147,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
         ref=args.ref,
         options=options,
         choose=chooser,
+        license_notice=args.license_notice,
+        license_full_text=args.license_full_text,
     )
   except AmbiguousSymbolError as exc:
     print(f"error: {exc}", file=sys.stderr)

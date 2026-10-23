@@ -27,20 +27,23 @@ class _FakeFetcher:
 
   def fetch_json(self, url, **kwargs):
     _LAST["json"].append(url)
-    return [
-        {
-            "path": "pkg/__init__.py",
-            "type": "file"
-        },
-        {
-            "path": "pkg/core.py",
-            "type": "file"
-        },
-        {
-            "path": "README.md",
-            "type": "file"
-        },
-    ]
+    if "/tree/" in url:
+      return [
+          {
+              "path": "pkg/__init__.py",
+              "type": "file"
+          },
+          {
+              "path": "pkg/core.py",
+              "type": "file"
+          },
+          {
+              "path": "README.md",
+              "type": "file"
+          },
+      ]
+    # Repo-info endpoint used for license metadata.
+    return {"cardData": {"license": "mit"}}
 
   def fetch_text(self, url, **kwargs):
     _LAST["text"].append(url)
@@ -71,7 +74,10 @@ def test_extract_from_hf_repo_offline(monkeypatch, tmp_path) -> None:
   assert "class Widget" in result.source
   assert "import math" in result.source  # stdlib kept as an import
   assert "def area" in result.source
-  assert _LAST["json"] == ["https://huggingface.co/api/models/owner/name/tree/HEAD?recursive=true"]
+  assert _LAST["json"] == [
+      "https://huggingface.co/api/models/owner/name/tree/HEAD?recursive=true",
+      "https://huggingface.co/api/models/owner/name",
+  ]
 
 
 def test_extract_from_hf_dataset_repo_offline(monkeypatch, tmp_path) -> None:
@@ -84,7 +90,8 @@ def test_extract_from_hf_dataset_repo_offline(monkeypatch, tmp_path) -> None:
   )
   ast.parse(result.source)
   assert _LAST["json"] == [
-      "https://huggingface.co/api/datasets/owner/name/tree/HEAD?recursive=true"
+      "https://huggingface.co/api/datasets/owner/name/tree/HEAD?recursive=true",
+      "https://huggingface.co/api/datasets/owner/name",
   ]
   assert all("/datasets/owner/name/resolve/HEAD/" in u for u in _LAST["text"])
 
@@ -98,7 +105,10 @@ def test_hf_repo_type_is_parsed_for_url_building(monkeypatch, tmp_path) -> None:
       fetch_third_party=False,
   )
   assert "class Widget" in result.source
-  assert _LAST["json"] == ["https://huggingface.co/api/spaces/owner/name/tree/HEAD?recursive=true"]
+  assert _LAST["json"] == [
+      "https://huggingface.co/api/spaces/owner/name/tree/HEAD?recursive=true",
+      "https://huggingface.co/api/spaces/owner/name",
+  ]
   assert all("/spaces/owner/name/resolve/HEAD/" in u for u in _LAST["text"])
 
 

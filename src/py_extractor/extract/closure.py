@@ -25,6 +25,7 @@ from ..analysis.symbols import (
 )
 from ..config import ExtractOptions
 from ..errors import ResolutionError, SymbolNotFoundError
+from ..licensing import LicenseInfo, detect_license
 from ..source.tree import SourceTree
 
 
@@ -141,6 +142,8 @@ class ClosureResult:
   guarded_blocks: list[GuardedBlock] = field(default_factory=list)
   future_imports: list[KeptImport] = field(default_factory=list)
   flags: list[Flag] = field(default_factory=list)
+  licenses: list[LicenseInfo] = field(default_factory=list)
+  license_ids: dict[str, str] = field(default_factory=dict)
 
 
 # A resolver maps an unresolved third-party import root to a (repo_id, tree).
@@ -178,15 +181,40 @@ class _ClosureBuilder:
   def build(self, target: ResolvedSymbol, repo_id: str) -> ClosureResult:
     target_unit = self._process(repo_id, target)
     ordered = self._topological_order()
+    units = [self.units[key] for key in ordered]
+    licenses, license_ids = self._collect_licenses(units)
     return ClosureResult(
         target=target_unit,
-        units=[self.units[key] for key in ordered],
+        units=units,
         kept_imports=list(self.kept_imports.values()),
         bindings=list(self.bindings.values()),
         guarded_blocks=list(self.guarded_blocks.values()),
         future_imports=list(self.future_imports.values()),
         flags=self.flags,
+        licenses=licenses,
+        license_ids=license_ids,
     )
+
+  def _collect_licenses(self,
+                        units: list[ExtractedUnit]) -> tuple[list[LicenseInfo], dict[str, str]]:
+    """Assign a stable ``[L#]`` id to each contributing repository.
+
+    Repositories are numbered in the order they first appear in the emitted
+    (topologically ordered) units, so the ids are deterministic for a given
+    extraction.
+    """
+    licenses: list[LicenseInfo] = []
+    license_ids: dict[str, str] = {}
+    for unit in units:
+      repo_id = unit.repo_id
+      if repo_id in license_ids:
+        continue
+      tree = self._trees.get(repo_id)
+      if tree is None:
+        continue
+      license_ids[repo_id] = f"L{len(licenses) + 1}"
+      licenses.append(detect_license(tree, repo_id))
+    return licenses, license_ids
 
   # -- core walk ----------------------------------------------------------
 

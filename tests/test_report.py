@@ -53,6 +53,38 @@ def test_render_json_is_valid() -> None:
   assert payload["kept_imports"]
 
 
+def _licensed_closure() -> object:
+  tree = SourceTree.from_mapping({
+      "LICENSE": "MIT License\n\nPermission is hereby granted, free of charge\n"
+                 'The software is provided "as is", without warranty of any kind.\n',
+      "pkg/__init__.py": "",
+      "pkg/mod.py": "class C:\n  pass\n",
+  })
+  options = ExtractOptions(cache_dir=Path("/tmp/x"), trust=TrustPolicy())
+  target = ResolvedSymbol("pkg/mod.py", "pkg.mod", "C", False)
+  return compute_closure(tree, target, options, repo_id="demo/repo")
+
+
+def test_render_text_contains_licenses_section() -> None:
+  text = render_text(_licensed_closure())
+  assert "Licenses (1):" in text
+  assert "[L1] MIT License (SPDX: MIT)" in text
+  assert "demo/repo" in text
+
+
+def test_render_json_contains_licenses() -> None:
+  payload = json.loads(render_json(_licensed_closure()))
+  assert payload["licenses"] == [{
+      "id": "L1",
+      "repo": "demo/repo",
+      "name": "MIT License",
+      "spdx": "MIT",
+      "origin": "file-text",
+      "path": "LICENSE",
+      "copyright": None,
+  }]
+
+
 class _FakeFetcher:
 
   def __init__(self, responses):

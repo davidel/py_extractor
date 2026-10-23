@@ -22,8 +22,9 @@ trust, *without* importing the whole package and dragging in its dependencies.
    - **In-repo module** → recursed into and inlined.
    - **Unknown third-party** → looked up on PyPI, optionally inlined, otherwise
      **flagged** and kept as an `import` (warn, but still emit a runnable file).
-5. **Emit a single file** with the kept imports, the inlined definitions in
-   dependency order, and a resolution report listing provenance and warnings.
+5. **Emit a single file** with a consolidated **license attribution table**, the
+   kept imports, the inlined definitions in dependency order, and a resolution
+   report listing provenance and warnings.
 
 ## Install
 
@@ -76,9 +77,11 @@ Key options:
 | `--no-trust a,b` | Revoke trusted names |
 | `--trust-file FILE` | Extra TOML registry (`[packages]` table) |
 | `--strict-trust` | Ignore the built-in registry (stdlib still trusted) |
-| `--no-third-party` | Never attempt to inline third-party code |
+| `--[no-]third-party` | Inline third-party code when resolvable (default: on) |
 | `--offline` | Disallow network access |
 | `--report text\|json\|none` | Resolution report on stderr |
+| `--[no-]license-notice` | Emit the license attribution table (default: on) |
+| `--license-full-text` | Embed the full text of each license file |
 
 The default ref is `HEAD`, a symbolic ref that GitHub and Hugging Face both
 resolve to the repository's **actual default branch**. This means `master`-era
@@ -102,6 +105,37 @@ On top of that, two opt-in checks are available:
 
 Both exit non-zero on failure. The import check is how you detect a file that
 compiles but would `NameError`/`ImportError` the moment it is used.
+
+### Licensing
+
+Flattening code out of a repository produces a derivative work, so the generated
+file carries a **consolidated license attribution table** at the top. Each
+contributing repository (the target repo and any inlined third-party repos) gets
+a stable `[L#]` id, and each inlined definition references its source license by
+that id — so a notice is stated once instead of repeated above every definition.
+
+```python
+# ====================================================================
+# LICENSES
+# ====================================================================
+# [L1] MIT License (SPDX: MIT)
+#      repo: owner/repo
+#      source: github-api
+#      Copyright (c) 2021 The Authors
+# ====================================================================
+...
+# --- pkg.mod:Model  (from owner/repo:pkg/mod.py) ---  [L1]
+```
+
+License detection prefers **authoritative metadata** — a GitHub API SPDX id, PyPI
+`License ::` classifiers, or a Hugging Face model-card `license` field — and
+falls back to fingerprinting the text of a `LICENSE`/`COPYING`/`NOTICE` file
+found in the downloaded tree. Unrecognised licenses degrade to an
+`Unknown license` entry rather than failing the extraction. Metadata lookups are
+best-effort and never fatal (rate limits simply fall back to text detection).
+
+The notice is **on by default**; disable it with `--no-license-notice`, or embed
+the full license bodies with `--license-full-text`.
 
 ## Library
 

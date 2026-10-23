@@ -96,6 +96,10 @@ def test_extract_dat_from_github(tmp_path) -> None:
   ast.parse(result.source)  # generated file must be valid Python
   assert "class DAT" in result.source
   assert result.target.symbol == "DAT"
+  # A consolidated license attribution table is emitted by default.
+  assert "LICENSES" in result.source
+  assert result.licenses
+  assert "[L1]" in result.source
 
 
 def test_extract_small_pure_python_function(tmp_path) -> None:

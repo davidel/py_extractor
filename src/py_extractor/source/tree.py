@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from ..errors import SourceError
+from ..licensing import is_license_path
 
 
 @dataclass
@@ -23,10 +24,19 @@ class SourceTree:
   Attributes:
     files: Mapping of repo-relative POSIX path to decoded source text.
     package_dirs: Set of directories (POSIX strings) that contain ``__init__.py``.
+    license_files: Mapping of license/notice files (kept out of :attr:`files` so
+      they never affect the module index or import resolution).
+    license_hint: Authoritative license string from repository metadata (GitHub
+      API, PyPI, or a Hugging Face model card), if any.
+    license_hint_origin: Where :attr:`license_hint` came from (e.g.
+      ``"github-api"``, ``"pypi-metadata"``).
   """
 
   files: dict[str, str] = field(default_factory=dict)
   package_dirs: set[str] = field(default_factory=set)
+  license_files: dict[str, str] = field(default_factory=dict)
+  license_hint: str | None = None
+  license_hint_origin: str = ""
   _index: dict[str, list[tuple[int, str]]] | None = field(default=None, repr=False)
 
   # -- construction -------------------------------------------------------
@@ -37,10 +47,16 @@ class SourceTree:
     A leading UTF-8 BOM (``\\ufeff``) is stripped: it is a byte-order artifact
     rather than source, and ``ast.parse`` rejects it with "invalid non-printable
     character U+FEFF". Several real-world repositories ship BOM-prefixed files.
+
+    Paths that look like license/notice files are diverted to
+    :attr:`license_files` so they never pollute the module index.
     """
     if text.startswith("\ufeff"):
       text = text[1:]
     rel = str(PurePosixPath(path))
+    if is_license_path(rel):
+      self.license_files[rel] = text
+      return
     self.files[rel] = text
     if PurePosixPath(rel).name == "__init__.py":
       parent = str(PurePosixPath(rel).parent)
@@ -63,8 +79,10 @@ class SourceTree:
     tree = cls()
     base = Path(root)
     for file in sorted(base.rglob("*")):
-      if file.is_file() and file.suffix in exts:
-        rel = file.relative_to(base).as_posix()
+      if not file.is_file():
+        continue
+      rel = file.relative_to(base).as_posix()
+      if file.suffix in exts or is_license_path(rel):
         tree.add(rel, file.read_text(encoding="utf-8", errors="replace"))
     return tree
 
@@ -72,15 +90,20 @@ class SourceTree:
   def from_tarball(cls, body: bytes, *, exts: tuple[str, ...] = (".py", ".pyi")) -> SourceTree:
     """Build a tree from an in-memory gzipped tarball, stripping the top dir."""
     entries: list[tuple[str, str]] = []
+    license_entries: list[tuple[str, str]] = []
     try:
       with tarfile.open(fileobj=io.BytesIO(body), mode="r:gz") as archive:
         for member in archive.getmembers():
-          if not member.isfile() or not member.name.endswith(exts):
+          if not member.isfile():
+            continue
+          is_source = member.name.endswith(exts)
+          if not is_source and not is_license_path(member.name):
             continue
           extracted = archive.extractfile(member)
           if extracted is None:
             continue
-          entries.append((member.name, extracted.read().decode("utf-8", errors="replace")))
+          text = extracted.read().decode("utf-8", errors="replace")
+          (entries if is_source else license_entries).append((member.name, text))
     except tarfile.TarError as exc:
       raise SourceError(f"Invalid tarball: {exc}") from exc
 
@@ -88,6 +111,8 @@ class SourceTree:
     tree = cls()
     for name, text in entries:
       tree.add(name[len(prefix):] if prefix else name, text)
+    for name, text in license_entries:
+      tree.add(name[len(prefix):] if prefix and name.startswith(prefix) else name, text)
     return tree
 
   # -- queries ------------------------------------------------------------

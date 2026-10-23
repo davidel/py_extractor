@@ -126,6 +126,63 @@ def test_cli_version(capsys) -> None:
   assert "py_extractor" in capsys.readouterr().out
 
 
+# --- license notice --------------------------------------------------------
+
+
+@pytest.fixture
+def licensed_repo(tmp_path: Path) -> Path:
+  """A repo carrying a top-level MIT LICENSE file."""
+  repo = tmp_path / "licensed"
+  (repo / "pkg").mkdir(parents=True)
+  (repo / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+  (repo / "pkg" / "mod.py").write_text("class Simple:\n    value = 1\n", encoding="utf-8")
+  (repo / "LICENSE").write_text(
+      "MIT License\n\nCopyright (c) 2022 The Authors\n\n"
+      "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+      'The software is provided "as is", without warranty of any kind.\n',
+      encoding="utf-8",
+  )
+  return repo
+
+
+def test_cli_emits_license_notice(licensed_repo: Path, tmp_path: Path) -> None:
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(licensed_repo, "Simple", "--out", str(out), "--report", "none", "--cache-dir",
+            str(tmp_path / "c")))
+  assert code == 0
+  text = out.read_text()
+  assert "LICENSES" in text
+  assert "SPDX: MIT" in text
+
+
+def test_cli_no_license_notice(licensed_repo: Path, tmp_path: Path) -> None:
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(licensed_repo, "Simple", "--no-license-notice", "--out", str(out), "--report", "none",
+            "--cache-dir", str(tmp_path / "c")))
+  assert code == 0
+  assert "LICENSES" not in out.read_text()
+
+
+def test_cli_license_notice_positive_flag(licensed_repo: Path, tmp_path: Path) -> None:
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(licensed_repo, "Simple", "--license-notice", "--out", str(out), "--report", "none",
+            "--cache-dir", str(tmp_path / "c")))
+  assert code == 0
+  assert "LICENSES" in out.read_text()
+
+
+def test_cli_license_full_text(licensed_repo: Path, tmp_path: Path) -> None:
+  out = tmp_path / "out.py"
+  code = cli.main(
+      _args(licensed_repo, "Simple", "--license-full-text", "--out", str(out), "--report", "none",
+            "--cache-dir", str(tmp_path / "c")))
+  assert code == 0
+  assert "---- license text ----" in out.read_text()
+
+
 # --- symbol disambiguation -------------------------------------------------
 
 

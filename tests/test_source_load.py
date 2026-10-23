@@ -212,7 +212,10 @@ def test_load_tree_dispatches_to_hf(monkeypatch) -> None:
   monkeypatch.setattr(source_mod, "Fetcher", lambda *a, **k: fake)
   tree = load_tree(RepoRef("hf", "o", "n", "main"), ExtractOptions(cache_dir="/tmp/hf"))
   assert tree.get("pkg/mod.py") == "k = 9\n"
-  assert fake.json_urls == ["https://huggingface.co/api/models/o/n/tree/main?recursive=true"]
+  assert fake.json_urls == [
+      "https://huggingface.co/api/models/o/n/tree/main?recursive=true",
+      "https://huggingface.co/api/models/o/n",
+  ]
 
 
 def test_load_tree_unsupported_kind() -> None:

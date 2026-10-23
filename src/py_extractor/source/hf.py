@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..errors import RepoNotFoundError, SourceError
+from ..licensing import is_license_path
 from .fetcher import Fetcher
 from .repo import RepoRef
 from .tree import SourceTree
@@ -33,7 +34,7 @@ def load_hf_tree(repo: RepoRef, fetcher: Fetcher) -> SourceTree:
     if entry.get("type", "file") != "file":
       continue
     path = entry.get("path")
-    if not path or not path.endswith(_PY_EXTS):
+    if not path or not (path.endswith(_PY_EXTS) or is_license_path(path)):
       continue
     text = fetcher.fetch_text(repo.resolve_url(path))
     tree.add(path, text)
