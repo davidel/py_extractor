@@ -39,6 +39,45 @@ MASTER_FILE = "modeling.py"
 BOM_REPO = "github:NVlabs/stylegan2-ada-pytorch"
 BOM_FILE = "training/networks.py"
 
+# -- AI-paper repositories with public code, grouped by the behaviour they cover.
+#
+# Cross-file relative-import closure: the target pulls sibling modules in
+# transitively (e.g. ``models/detr.py`` -> ``util/misc.py``).
+DETR_REPO = "github:facebookresearch/detr"
+DETR_FILE = "models/detr.py"
+
+SAM_REPO = "github:facebookresearch/segment-anything"
+SAM_FILE = "segment_anything/modeling/mask_decoder.py"
+
+VIT_PYTORCH_REPO = "github:lucidrains/vit-pytorch"
+VIT_PYTORCH_FILE = "vit_pytorch/vit.py"
+
+VIT_JAX_REPO = "github:google-research/vision_transformer"
+VIT_JAX_FILE = "vit_jax/models_vit.py"
+
+# Layout / default-branch variety.
+NANOGPT_REPO = "github:karpathy/nanoGPT"  # flat layout, ``master`` branch
+NANOGPT_FILE = "model.py"
+
+CLIP_REPO = "github:openai/CLIP"  # package dir, no ``src/``
+CLIP_FILE = "clip/model.py"
+
+CONVNEXT_REPO = "github:facebookresearch/ConvNeXt"
+CONVNEXT_FILE = "models/convnext.py"
+
+# Edge cases.
+NERF_REPO = "github:bmild/nerf"  # flat, ``master``, tiny symbol
+NERF_FILE = "run_nerf_helpers.py"
+
+LORA_REPO = "github:microsoft/LoRA"  # tiny, minimal deps
+LORA_FILE = "loralib/layers.py"
+
+MAMBA_REPO = "github:state-spaces/mamba"  # large symbol
+MAMBA_FILE = "mamba_ssm/modules/mamba_simple.py"
+
+MMENGINE_REPO = "github:open-mmlab/mmengine"  # star + nested/guarded imports
+MMENGINE_FILE = "mmengine/model/base_model/base_model.py"
+
 
 def _options(tmp_path) -> ExtractOptions:
   return ExtractOptions(cache_dir=tmp_path / "cache",
@@ -172,3 +211,174 @@ def test_extract_from_bom_prefixed_repository(tmp_path) -> None:
   )
   ast.parse(result.source)
   assert "class Generator" in result.source
+
+
+# -- Cross-file relative-import closure ---------------------------------------
+
+
+def test_relative_import_closure_across_modules(tmp_path) -> None:
+  """``DETR`` pulls sibling definitions out of ``util/misc.py`` transitively."""
+  result = extract_symbol(
+      DETR_REPO,
+      "DETR",
+      file_hint=DETR_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class DETR" in result.source
+  # The closure crossed file boundaries: more than one unit, sourced from more
+  # than one module path.
+  assert len(result.closure.units) > 1
+  paths = {u.path for u in result.closure.units}
+  assert len(paths) > 1
+  # A helper defined in a sibling module made it into the output.
+  assert "class NestedTensor" in result.source
+
+
+def test_closure_pulls_transitive_helpers(tmp_path) -> None:
+  """``MaskDecoder`` drags helpers defined in sibling ``segment_anything`` modules."""
+  result = extract_symbol(
+      SAM_REPO,
+      "MaskDecoder",
+      file_hint=SAM_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class MaskDecoder" in result.source
+  assert len({u.path for u in result.closure.units}) > 1
+
+
+# -- Repository layout / default-branch variety -------------------------------
+
+
+def test_package_dir_layout_repository(tmp_path) -> None:
+  """A package directory (no ``src/``) at the repo root resolves correctly."""
+  result = extract_symbol(
+      VIT_PYTORCH_REPO,
+      "ViT",
+      file_hint=VIT_PYTORCH_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class ViT" in result.source
+
+
+def test_jax_style_repository(tmp_path) -> None:
+  """A Flax/JAX-style repository (``vit_jax/``) extracts its main model class."""
+  result = extract_symbol(
+      VIT_JAX_REPO,
+      "VisionTransformer",
+      file_hint=VIT_JAX_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class VisionTransformer" in result.source
+
+
+def test_flat_layout_repository(tmp_path) -> None:
+  """A flat-layout repository on a ``master`` default branch resolves."""
+  result = extract_symbol(
+      NANOGPT_REPO,
+      "GPT",
+      file_hint=NANOGPT_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class GPT" in result.source
+
+
+def test_second_package_dir_layout_repository(tmp_path) -> None:
+  """``openai/CLIP`` keeps its code under a top-level ``clip/`` package."""
+  result = extract_symbol(
+      CLIP_REPO,
+      "CLIP",
+      file_hint=CLIP_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  assert "class CLIP" in result.source
+
+
+def test_convnext_repository(tmp_path) -> None:
+  """``ConvNeXt`` lives under ``models/`` and references sibling modules."""
+  result = extract_symbol(
+      CONVNEXT_REPO,
+      "ConvNeXt",
+      file_hint=CONVNEXT_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class ConvNeXt" in result.source
+
+
+# -- Edge cases ---------------------------------------------------------------
+
+
+def test_tiny_symbol_extraction(tmp_path) -> None:
+  """A tiny standalone function from a flat, ``master``-era repository."""
+  result = extract_symbol(
+      NERF_REPO,
+      "get_rays",
+      file_hint=NERF_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  assert "def get_rays" in result.source
+
+
+def test_minimal_dependency_symbol(tmp_path) -> None:
+  """A small class with essentially no third-party dependencies."""
+  result = extract_symbol(
+      LORA_REPO,
+      "LoRALayer",
+      file_hint=LORA_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  assert "class LoRALayer" in result.source
+
+
+def test_large_symbol_extraction(tmp_path) -> None:
+  """A large class (``Mamba``) still yields valid, compilable Python."""
+  result = extract_symbol(
+      MAMBA_REPO,
+      "Mamba",
+      file_hint=MAMBA_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class Mamba" in result.source
+
+
+def test_star_import_repository_still_compiles(tmp_path) -> None:
+  """A repository using star/nested imports yields valid output and surfaces flags."""
+  result = extract_symbol(
+      MMENGINE_REPO,
+      "BaseModel",
+      file_hint=MMENGINE_FILE,
+      options=_options(tmp_path),
+      fetch_third_party=False,
+  )
+  ast.parse(result.source)
+  compile(result.source, "<extracted>", "exec")
+  assert "class BaseModel" in result.source
+  # Risky constructs must be surfaced as flags rather than silently dropped.
+  kinds = {f.kind.name for f in result.closure.flags}
+  assert "STAR_IMPORT" in kinds
