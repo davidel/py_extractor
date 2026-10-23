@@ -41,14 +41,14 @@ def test_deep_relative_import(relative_tree, options) -> None:
   assert "pkg.a.b.sibling" in modules
 
 
-def test_namespace_root_recorded(basic_tree, options) -> None:
+def test_namespace_module_binding_recorded(basic_tree, options) -> None:
   tree = SourceTree.from_mapping({
       "pkg/__init__.py": "",
       "pkg/mod.py": "import pkg.utils\n\nclass C:\n    x = pkg.utils.VALUE\n",
       "pkg/utils.py": "VALUE = 1\n",
   })
   closure = compute_closure(tree, _target("pkg/mod.py", "pkg.mod", "C"), options)
-  assert "pkg" in closure.namespace_roots
+  assert any(b.kind == "module" and b.local == "pkg" for b in closure.bindings)
 
 
 def test_unresolved_third_party_flagged_and_kept() -> None:

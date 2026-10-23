@@ -79,21 +79,11 @@ def _render_imports(imports: list[KeptImport]) -> list[str]:
   seen: set[str] = set()
   rendered: list[str] = []
   for imp in sorted(imports, key=lambda i: (i.kind, i.module, i.name)):
-    line = _render_import(imp)
+    line = imp.render()
     if line not in seen:
       seen.add(line)
       rendered.append(line)
   return rendered
-
-
-def _render_import(imp: KeptImport) -> str:
-  if imp.kind == "import":
-    if imp.asname and imp.asname != imp.module.split(".")[0]:
-      return f"import {imp.module} as {imp.asname}"
-    return f"import {imp.module}"
-  if imp.asname:
-    return f"from {imp.module} import {imp.name} as {imp.asname}"
-  return f"from {imp.module} import {imp.name}"
 
 
 def _render_unit(unit: ExtractedUnit) -> list[str]:
@@ -110,7 +100,7 @@ def _render_unit(unit: ExtractedUnit) -> list[str]:
   marker = f"# --- {unit.module}:{unit.symbol}  (from {unit.repo_id}:{unit.path}) ---"
   code = _verbatim_source(unit.source, unit.node)
   if code is None:
-    code = ast.unparse(_strip_docstring_possible(unit.node))
+    code = ast.unparse(unit.node)
   return [marker, code, ""]
 
 
@@ -200,11 +190,6 @@ def _render_binding(binding: Binding) -> list[str]:
   return [f"{binding.local} = {expr}"]
 
 
-def _strip_docstring_possible(node: ast.AST) -> ast.AST:
-  """Return *node* unchanged (hook for future docstring/annotation trimming)."""
-  return node
-
-
 def _render_report(result: ClosureResult) -> list[str]:
   lines = ["# " + "=" * 68, "# Resolution report", "# " + "=" * 68]
   lines.append(f"# Definitions inlined: {len(result.units)}")
@@ -214,7 +199,7 @@ def _render_report(result: ClosureResult) -> list[str]:
   if result.kept_imports:
     lines.append(f"# Imports kept as-is: {len(result.kept_imports)}")
     for imp in sorted(result.kept_imports, key=lambda i: (i.module, i.name)):
-      lines.append(f"#   - {_render_import(imp)}")
+      lines.append(f"#   - {imp.render()}")
   if result.flags:
     lines.append(f"# Warnings: {len(result.flags)}")
     for flag in result.flags:

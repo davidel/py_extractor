@@ -26,7 +26,6 @@ from ..analysis.symbols import (
 from ..config import ExtractOptions
 from ..errors import ResolutionError, SymbolNotFoundError
 from ..source.tree import SourceTree
-from .classifier import Route, classify
 
 
 class FlagKind(Enum):
@@ -70,6 +69,16 @@ class KeptImport:
   module: str
   name: str
   asname: str | None = None
+
+  def render(self) -> str:
+    """Return the ``import ...`` / ``from ... import ...`` source line."""
+    if self.kind == "import":
+      if self.asname and self.asname != self.module.split(".")[0]:
+        return f"import {self.module} as {self.asname}"
+      return f"import {self.module}"
+    if self.asname:
+      return f"from {self.module} import {self.name} as {self.asname}"
+    return f"from {self.module} import {self.name}"
 
 
 @dataclass(frozen=True)
@@ -128,7 +137,6 @@ class ClosureResult:
   target: ExtractedUnit
   units: list[ExtractedUnit]
   kept_imports: list[KeptImport]
-  namespace_roots: dict[str, str] = field(default_factory=dict)
   bindings: list[Binding] = field(default_factory=list)
   guarded_blocks: list[GuardedBlock] = field(default_factory=list)
   future_imports: list[KeptImport] = field(default_factory=list)
@@ -155,7 +163,6 @@ class _ClosureBuilder:
     self.units: dict[str, ExtractedUnit] = {}
     self.order: list[str] = []
     self.kept_imports: dict[tuple, KeptImport] = {}
-    self.namespace_roots: dict[str, str] = {}
     self.bindings: dict[tuple, Binding] = {}
     self._binding_locals: dict[str, tuple] = {}
     self.guarded_blocks: dict[tuple, GuardedBlock] = {}
@@ -175,7 +182,6 @@ class _ClosureBuilder:
         target=target_unit,
         units=[self.units[key] for key in ordered],
         kept_imports=list(self.kept_imports.values()),
-        namespace_roots=dict(self.namespace_roots),
         bindings=list(self.bindings.values()),
         guarded_blocks=list(self.guarded_blocks.values()),
         future_imports=list(self.future_imports.values()),
@@ -463,13 +469,15 @@ class _ClosureBuilder:
       key: str,
   ) -> None:
     root = imp.root
-    decision = classify(root, self.policy)
 
-    if decision.route in (Route.STDLIB, Route.TRUSTED):
+    # stdlib/trusted: keep as an import and never descend into it. Whitelisting
+    # a package means "it and its dependencies are installed", so the closure
+    # engine must not inline it (or any of its submodules).
+    if self.policy.is_trusted(root):
       self._keep_import(imp, imported)
       return
 
-    # Not stdlib/trusted: is it an in-repo module?
+    # Is it an in-repo module?
     internal = resolve_import_name(tree, imp, imported.name, current_module=resolved.module)
     if internal is not None:
       self._process(repo_id, internal)
@@ -500,8 +508,7 @@ class _ClosureBuilder:
             if self.options.allow_third_party else f"third-party '{root}' denied (kept as import)",
             f"{resolved.module}:{resolved.symbol or '<module>'}",
         ))
-    if decision.route is Route.UNKNOWN:
-      self._keep_import(imp, imported)
+    self._keep_import(imp, imported)
 
   def _keep_import(self, imp: ImportInfo, imported: ImportedName) -> None:
     if imp.kind == "import":
@@ -563,7 +570,6 @@ class _ClosureBuilder:
       local, parts = imported.name, ()
     binding = Binding("module", local, unit_key=unit_key, parts=parts, members=members)
     self._add_binding(binding, ("module", binding.local, binding.parts))
-    self.namespace_roots.setdefault(local, internal.module)
 
   def _module_members(self, repo_id: str, internal: ResolvedSymbol) -> tuple[str, ...]:
     """Return the inlined top-level names exposed by a whole-module unit."""

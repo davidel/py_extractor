@@ -20,7 +20,7 @@ def render_text(result: ClosureResult) -> str:
   lines.append("")
   lines.append(f"Imports kept as-is ({len(result.kept_imports)}):")
   for imp in result.kept_imports:
-    lines.append(f"  - {_render_import(imp)}")
+    lines.append(f"  - {imp.render()}")
   lines.append("")
   lines.append(f"Local bindings ({len(result.bindings)}):")
   for binding in result.bindings:
@@ -32,7 +32,7 @@ def render_text(result: ClosureResult) -> str:
   lines.append("")
   lines.append(f"Future imports ({len(result.future_imports)}):")
   for imp in result.future_imports:
-    lines.append(f"  - {_render_import(imp)}")
+    lines.append(f"  - {imp.render()}")
   lines.append("")
   lines.append(f"Optional-import blocks preserved ({len(result.guarded_blocks)}):")
   for block in result.guarded_blocks:
@@ -68,8 +68,6 @@ def render_json(result: ClosureResult) -> str:
           "name": imp.name,
           "asname": imp.asname,
       } for imp in result.kept_imports],
-      "namespace_roots":
-          result.namespace_roots,
       "bindings": [{
           "kind": binding.kind,
           "local": binding.local,
@@ -93,13 +91,6 @@ def render_json(result: ClosureResult) -> str:
       } for flag in result.flags],
   }
   return json.dumps(payload, indent=2, sort_keys=True)
-
-
-def _render_import(imp) -> str:
-  if imp.kind == "import":
-    return f"import {imp.module}" + (f" as {imp.asname}" if imp.asname else "")
-  suffix = f" as {imp.asname}" if imp.asname else ""
-  return f"from {imp.module} import {imp.name}{suffix}"
 
 
 __all__ = ["render_json", "render_text"]
